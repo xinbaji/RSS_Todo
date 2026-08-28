@@ -1,6 +1,6 @@
 {
   "name": "rss-todo-desktop",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "RSS_Todo 桌面壳（内嵌后端 exe）",
   "main": "main.js",
   "scripts": {

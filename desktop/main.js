@@ -42,14 +42,32 @@ function waitBackend(timeoutMs) {
 }
 
 function startBackend() {
-  backend = spawn(backendExe(), ["--no-browser", "--port", String(PORT)], {
+  const exe = backendExe();
+  const fs = require("fs");
+  if (!fs.existsSync(exe)) {
+    throw new Error(`后端可执行文件不存在：\n${exe}\n\n请检查安装包是否完整（resources/backend.exe 应随应用一起安装）。`);
+  }
+  log("spawn 后端:", exe);
+  backend = spawn(exe, ["--no-browser", "--port", String(PORT)], {
     windowsHide: true,
   });
-  backend.on("exit", () => {
-    if (win && !win.isDestroyed()) {
+  // 收集后端早期错误（spawn 失败 / 后端 5 秒内退出 → 立即 fail-fast，避免等 40 秒）
+  let stderrBuf = "";
+  let earlyExit = null;
+  backend.stderr?.on("data", (c) => { stderrBuf += c.toString(); });
+  backend.on("error", (e) => { earlyExit = e.message; });
+  backend.on("exit", (code, signal) => {
+    log("后端已退出", { code, signal });
+    if (win && !win.isDestroyed() && code !== 0 && code != null) {
+      const reason = stderrBuf.trim() || `exit code ${code}${signal ? " signal "+signal : ""}`;
+      dialog.showErrorBox("RSS_Todo 后端异常退出", `后端进程未能正常运行。\n\n退出信息：${reason}\n\n请把此信息反馈给开发者。`);
+      app.quit();
+    } else if (win && !win.isDestroyed()) {
       app.quit();
     }
   });
+  backend._earlyError = () => earlyExit;
+  backend._stderr = () => stderrBuf;
 }
 
 function shutdownBackend() {
@@ -78,14 +96,33 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   log("ready，启动后端:", backendExe());
-  startBackend();
+  try {
+    startBackend();
+  } catch (e) {
+    log("后端启动前失败:", e.message);
+    dialog.showErrorBox("RSS_Todo 启动失败", e.message);
+    app.quit();
+    return;
+  }
+  // 5 秒早期检查：spawn error 或后端立即退出 → 直接报错（不等 40 秒）
+  setTimeout(() => {
+    const earlyErr = backend._earlyError?.();
+    if (earlyErr) {
+      log("后端 spawn 错误:", earlyErr);
+      dialog.showErrorBox("RSS_Todo 启动失败",
+        `后端启动失败：${earlyErr}\n\n（窗口 8848 端口被占用也会导致类似问题，请检查）`);
+      app.quit();
+    }
+  }, 5000);
   try {
     await waitBackend(START_TIMEOUT);
     log("后端已就绪");
   } catch (e) {
     log("后端启动失败:", e.message);
+    const stderr = backend._stderr?.() || "";
+    const detail = stderr ? `\n\n后端输出：\n${stderr.slice(0, 500)}` : "";
     dialog.showErrorBox("RSS_Todo 启动失败",
-      "后端服务未能在规定时间内启动，请检查端口 8848 是否被占用。\n\n" + e.message);
+      `后端服务未能在规定时间内启动，请检查端口 ${PORT} 是否被占用。\n\n${e.message}${detail}`);
     app.quit();
     return;
   }
