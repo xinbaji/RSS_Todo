@@ -76,6 +76,19 @@ def normalize_rule(raw: dict, idx: int = 0) -> dict:
             cfg["items"] = ["live"]  # 至少监控直播
         cfg["url"] = ""
         cfg["xpath"] = ""
+    elif cfg["type"] == "github_repo":
+        # GitHub 仓库监控：owner/repo + 指标列表（stars/forks/issues/watchers/downloads）
+        cfg["owner"] = str(raw.get("config", {}).get("owner", "")).strip()
+        cfg["repo"] = str(raw.get("config", {}).get("repo", "")).strip()
+        if not cfg["owner"] or not cfg["repo"]:
+            raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少 owner/repo")
+        fields = raw.get("config", {}).get("fields") or []
+        valid = {"stars", "forks", "issues", "watchers", "downloads"}
+        cfg["fields"] = [f for f in fields if f in valid]
+        if not cfg["fields"]:
+            raise MonitorRuleError(f"[{idx}] 监控 {name} fields 非法")
+        cfg["url"] = ""
+        cfg["xpath"] = ""
     else:
         if not url or not url.startswith(("http://", "https://")):
             raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少有效 URL")
@@ -492,6 +505,82 @@ class MonitorChecker:
         }, ensure_ascii=False))
         return state, len(triggered)
 
+    def _check_github_rule(self, rule: dict) -> tuple[dict, int]:
+        """GitHub 仓库监控（github_repo）：走 api.github.com 拿 stars/forks/issues/watchers/downloads。"""
+        import requests
+        cfg = rule["config"]
+        owner, repo = cfg.get("owner", ""), cfg.get("repo", "")
+        fields = cfg.get("fields") or ["stars"]
+        rid = rule["id"]
+        last_raw = self.storage.get_meta(f"up_state:{rid}")
+        last = json.loads(last_raw) if last_raw else {}
+        state = {"error": "", "title": repo, "owner": owner}
+        gh_headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/vnd.github+json"}
+
+        try:
+            r = requests.get(f"https://api.github.com/repos/{owner}/{repo}",
+                             headers=gh_headers, timeout=15)
+            if r.status_code == 404:
+                state["error"] = f"仓库 {owner}/{repo} 不存在"
+            elif r.status_code != 200:
+                state["error"] = f"GitHub API HTTP {r.status_code}"
+            else:
+                d = r.json()
+                state["title"] = d.get("full_name") or repo
+                state["owner"] = owner
+                state["desc"] = (d.get("description") or "")[:80]
+                for f in fields:
+                    if f == "stars":
+                        state["stars"] = int(d.get("stargazers_count") or 0)
+                    elif f == "forks":
+                        state["forks"] = int(d.get("forks_count") or 0)
+                    elif f == "issues":
+                        state["issues"] = int(d.get("open_issues_count") or 0)
+                    elif f == "watchers":
+                        state["watchers"] = int(d.get("subscribers_count") or 0)
+            if "downloads" in fields and not state["error"]:
+                rr = requests.get(f"https://api.github.com/repos/{owner}/{repo}/releases/latest",
+                                  headers=gh_headers, timeout=15)
+                if rr.status_code == 200:
+                    rel = rr.json()
+                    state["downloads"] = sum(int(a.get("download_count") or 0)
+                                             for a in rel.get("assets", []))
+                # 404 = 无 release，视为 0；其他错误忽略
+        except Exception as e:
+            state["error"] = (state["error"] + " | " if state["error"] else "") + f"github 异常: {e}"
+
+        label_map = {"stars": "星标", "forks": "复刻", "issues": "议题",
+                     "watchers": "关注", "downloads": "下载"}
+        metrics: list[dict] = []
+        for f in fields:
+            cur = state.get(f)
+            if cur is None:
+                continue
+            cur = int(cur)
+            delta = ""
+            prev = last.get(f)
+            if prev is not None:
+                prev = int(prev)
+                if cur != prev:
+                    d = cur - prev
+                    sign = "+" if d > 0 else ""
+                    delta = f"{sign}{d:,}"
+            metrics.append({"label": label_map.get(f, f), "value": f"{cur:,}", "delta": delta})
+        display = {
+            "kind": "github",
+            "title": state.get("title") or f"{owner}/{repo}",
+            "owner": state.get("owner", owner),
+            "repo": repo,
+            "desc": state.get("desc", ""),
+            "metrics": metrics,
+        }
+        self.storage.set_monitor_value(rid, json.dumps(display, ensure_ascii=False),
+                                       int(time.time()), state.get("error", ""))
+        self.storage.set_meta(f"up_state:{rid}", json.dumps(
+            {f: state.get(f) for f in fields if state.get(f) is not None},
+            ensure_ascii=False))
+        return state, 0
+
     def check(self) -> None:
         now = time.time()
         for rule in self.rules.all(include_disabled=False):
@@ -509,6 +598,8 @@ class MonitorChecker:
                     state, n = self._check_up_rule(rule)
                 elif rtype == "bilibili_stat":
                     state, n = self._check_bili_stat_rule(rule)
+                elif rtype == "github_repo":
+                    state, n = self._check_github_rule(rule)
                 else:
                     state, n = {}, 0
                     value, error = scrape_rule(rule, self.config.all())
@@ -534,6 +625,8 @@ class MonitorChecker:
             state, n = self._check_up_rule(rule)
         elif rtype == "bilibili_stat":
             state, n = self._check_bili_stat_rule(rule)
+        elif rtype == "github_repo":
+            state, n = self._check_github_rule(rule)
         else:
             value, error = scrape_rule(rule, self.config.all())
             self.storage.set_monitor_value(rule_id, value, int(time.time()), error)

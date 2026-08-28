@@ -230,20 +230,23 @@ let monFilter = "all";
 function monBadge(cfg) {
   if (cfg.type === "up") return `<span class="mtag" style="background:#fdf0f4;color:#d4537e;border-color:#f4c0d1">UP 监控</span>`;
   if (cfg.type === "bilibili_stat") return `<span class="mtag metric">B 站视频</span>`;
+  if (cfg.type === "github_repo") return `<span class="mtag" style="background:#eef0f6;color:#24292f;border-color:#d0d7de">GitHub 仓库</span>`;
   return `<span class="mtag metric">页面</span>`;
 }
 
 function monCardHTML(r) {
   const cfg = r.config || {};
   let img = "";
+  let ghIcon = false;
   let body = "";
   let nameHTML = esc(r.name);
   let headExtra = "";
+  let subHTML = "";
   if (!r.last_error && r.value) {
     try {
       const d = JSON.parse(r.value);
       if (d && d.kind) {
-        img = d.kind === "up" ? d.face : d.pic;
+        img = d.kind === "up" ? d.face : d.kind === "stat" ? d.pic : "";
         if (d.kind === "up" && d.mid) {
           nameHTML = `<a class="up-link" href="https://space.bilibili.com/${d.mid}/" target="_blank" rel="noopener">${esc(d.name || r.name)}</a>`;
           if (d.live_status === 1) {
@@ -252,6 +255,11 @@ function monCardHTML(r) {
           } else {
             body = "";  // 未开播不显示
           }
+        }
+        if (d.kind === "github") {
+          ghIcon = true;
+          nameHTML = `<a class="up-link" href="https://github.com/${esc(d.owner || "")}/${esc(d.repo || "")}" target="_blank" rel="noopener">${esc(d.title || r.name)}</a>`;
+          subHTML = `<div class="mon-sub">@${esc(d.owner || "")}${d.desc ? " · " + esc(d.desc) : ""}</div>`;
         }
         const metrics = (d.metrics || []).length
           ? `<div class="up-metrics">${d.metrics.map((m) =>
@@ -269,13 +277,17 @@ function monCardHTML(r) {
   } else {
     body = `<div class="mon-value dim">尚未抓取</div>`;
   }
+  const cover = img
+    ? `<img class="mon-cover" src="${esc(img)}" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
+    : ghIcon
+      ? `<div class="mon-cover gh">${GH_SVG}</div>`
+      : `<div class="mon-cover ph">${esc((r.name || "?")[0])}</div>`;
   return `
   <div class="mon-card ${r.last_error ? "err" : ""}" data-id="${r.id}">
-    ${img
-      ? `<img class="mon-cover" src="${esc(img)}" referrerpolicy="no-referrer" onerror="this.style.display='none'">`
-      : `<div class="mon-cover ph">${esc((r.name || "?")[0])}</div>`}
+    ${cover}
     <div class="mon-main">
       <div class="mon-head"><span class="mon-name">${nameHTML}</span>${headExtra}${monBadge(cfg)}${(r.tags || []).map(mtag).join("")}</div>
+      ${subHTML}
       ${body}
       <div class="mon-foot"><span>${r.fetched_at ? fmtTime(r.fetched_at) + " 更新" : "尚未抓取"} · ${r.interval_minutes || 60}分钟</span>
         <span class="spacer"></span>
@@ -357,6 +369,10 @@ function renderMonItems() {
     area.innerHTML = `<div class="field"><label>监控指标（可多选，点击切换）</label>
       <div class="up-item-row">${items.map(([k, lbl, icon]) =>
         `<button type="button" class="btn${monSel.includes(k) ? " primary" : ""}" data-field="${k}" onclick="toggleStatField(this)">${icon} <span style="font-size:12px">${lbl}</span></button>`).join("")}</div></div>`;
+  } else if (monMode === "github") {
+    area.innerHTML = `<div class="field"><label>监控指标（可多选，点击切换）</label>
+      <div class="up-item-row">${GH_FIELD_LABEL.map(([k, icon, lbl]) =>
+        `<button type="button" class="btn${monSel.includes(k) ? " primary" : ""}" data-field="${k}" onclick="toggleStatField(this)">${icon} <span style="font-size:12px">${lbl}</span></button>`).join("")}</div></div>`;
   }
   area.style.display = monMode ? "" : "none";
 }
@@ -422,8 +438,11 @@ $("monPageUrl").addEventListener("input", () => {
   clearTimeout(monInspectTimer);
   const v = $("monPageUrl").value.trim();
   const upM = v.match(/space\.bilibili\.com\/(\d+)/);
+  const ghM = v.match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
   if (upM) {
     monInspectTimer = setTimeout(() => monAutoParseUp(v, upM[1]), 450);
+  } else if (ghM) {
+    monInspectTimer = setTimeout(() => monGithubParse(v, ghM[1], ghM[2]), 450);
   } else if (/BV[1-9A-HJ-NP-Za-km-z]{10}/.test(v)) {
     monInspectTimer = setTimeout(() => inspectPage(), 450);
   } else {
@@ -434,6 +453,26 @@ $("monPageUrl").addEventListener("input", () => {
     $("monItemArea").style.display = "none";
   }
 });
+
+/* GitHub 仓库链接识别：github.com/{owner}/{repo} → 选择监控指标 */
+let monGithub = null;
+const GH_SVG = `<svg viewBox="0 0 24 24" fill="#24292f" xmlns="http://www.w3.org/2000/svg"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.29-.01-1.05-.02-2.06-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.21.09 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.61-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.65.24 2.87.12 3.17.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.93.43.37.81 1.1.81 2.22 0 1.6-.01 2.9-.01 3.29 0 .32.22.7.82.58A12 12 0 0 0 24 12.5C24 5.87 18.63.5 12 .5z"/></svg>`;
+const GH_FIELD_LABEL = [
+  ["stars", "⭐", "星标"], ["forks", "🍴", "复刻"], ["issues", "🐛", "议题"],
+  ["watchers", "👁", "关注"], ["downloads", "⬇", "下载"],
+];
+function monGithubParse(url, owner, repo) {
+  const resultEl = $("monInspectResult");
+  resultEl.innerHTML = '<span style="color:var(--txt3)">识别 GitHub 仓库中…</span>';
+  $("monType").value = "github_repo";
+  monGithub = { owner, repo };
+  if (!$("monName").value) $("monName").value = `${owner}/${repo}`;
+  monMode = "github";
+  monSel = ["stars"];
+  resultEl.innerHTML =
+    `<div style="color:var(--txt2);font-size:12px">识别为 GitHub 仓库：<b>${esc(owner)}/${esc(repo)}</b> · 选择要监控的指标</div>`;
+  renderMonItems();
+}
 
 async function monAutoParseUp(url, mid) {
   const resultEl = $("monInspectResult");
@@ -463,6 +502,10 @@ function getSelectedItems() {
       .map((b) => b.dataset.item).filter(Boolean);
   }
   if (monMode === "stat") {
+    return Array.from(document.querySelectorAll("#monItemArea .btn.primary"))
+      .map((b) => b.dataset.field).filter(Boolean);
+  }
+  if (monMode === "github") {
     return Array.from(document.querySelectorAll("#monItemArea .btn.primary"))
       .map((b) => b.dataset.field).filter(Boolean);
   }
@@ -539,6 +582,12 @@ async function saveMonitor() {
     const items = getSelectedItems();
     if (items.length === 0) { toast("提示", "至少选一个监控项"); return; }
     config = { type: "up", mid, items };
+  } else if (rtype === "github_repo") {
+    const m = $("monPageUrl").value.trim().match(/github\.com\/([\w.-]+)\/([\w.-]+)/);
+    if (!m) { toast("提示", "请先输入 GitHub 仓库链接"); return; }
+    const fields = getSelectedItems();
+    if (fields.length === 0) { toast("提示", "至少选一个监控指标"); return; }
+    config = { type: "github_repo", owner: m[1], repo: m[2], fields };
   } else {
     config = { url: $("monUrl").value.trim(), xpath: $("monXpath").value.trim() };
   }
