@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rss-todo</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><span class="dot"></span>rss-todo</div>
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-page="todo">待办 <span class="badge" id="badge-todo">0</span></button>
+    <button class="tab" data-page="monitor">监控</button>
+    <button class="tab" data-page="download">下载</button>
+    <button class="tab" data-page="subs">订阅管理</button>
+    <button class="tab" data-page="settings">设置</button>
+  </div>
+  <div class="topbar-right">
+    <button class="refresh-btn" id="refreshBtn"><span class="spin"></span><span id="refreshLabel">刷新</span></button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- 待办 -->
+  <div class="page active" id="page-todo">
+    <div class="page-head"><h1>待办清单</h1></div>
+    <div class="filter-bar" id="filterBar">
+      <button class="fbtn active" data-f="todo">待办 <span class="n" id="n-todo"></span></button>
+      <button class="fbtn" data-f="done">已完成 <span class="n" id="n-done"></span></button>
+      <button class="fbtn" data-f="ignored">已忽略 <span class="n" id="n-ignored"></span></button>
+      <button class="fbtn" data-f="all">全部 <span class="n" id="n-all"></span></button>
+    </div>
+    <div class="filter-bar sub" id="subFilterBar"></div>
+    <div id="todo-groups"></div>
+  </div>
+
+  <!-- 监控 -->
+  <div class="page" id="page-monitor">
+    <div class="page-head">
+      <h1>监控数据</h1>
+      <button class="btn primary" onclick="openMonModal()">+ 新增监控</button>
+    </div>
+    <div class="filter-bar" id="monFilterBar">
+      <button class="fbtn active" data-t="all">全部</button>
+      <button class="fbtn" data-t="up">UP 监控</button>
+      <button class="fbtn" data-t="stat">B 站视频监控</button>
+    </div>
+    <div class="mon-list" id="mon-grid"></div>
+  </div>
+
+  <!-- 下载 -->
+  <div class="page" id="page-download">
+    <div class="page-head"><h1>下载任务</h1></div>
+    <div class="dl-toolbar">
+      <label class="sel"><input type="checkbox" id="selAll"> 全选</label>
+      <button class="btn" onclick="dlBatch('start')">开始</button>
+      <button class="btn" onclick="dlBatch('pause')">暂停</button>
+      <button class="btn" onclick="dlBatch('stop')">停止</button>
+      <button class="btn" onclick="dlOpenDir()">打开文件夹</button>
+      <button class="btn danger" onclick="dlBatch('delete')">删除</button>
+    </div>
+    <div id="dl-list"></div>
+  </div>
+
+  <!-- 订阅管理 -->
+  <div class="page" id="page-subs">
+    <div class="page-head">
+      <h1>订阅管理</h1>
+      <button class="btn primary" onclick="openSubModal()">+ 新增订阅</button>
+    </div>
+    <table class="sub-table">
+      <thead><tr><th>名称</th><th>类型</th><th>ID</th><th>关键词</th><th>间隔</th><th>启用</th><th></th></tr></thead>
+      <tbody id="sub-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 设置 -->
+  <div class="page" id="page-settings">
+    <div class="page-head"><h1>设置</h1></div>
+    <div class="set-form">
+      <div class="field"><label>B 站账号</label>
+        <div id="biliAccount"><span style="color:var(--txt3)">加载中…</span></div></div>
+      <div class="field"><label>服务端口（修改后需重启生效）</label><input id="cfg-port" type="number" min="1" max="65535"></div>
+      <div class="field"><label>默认刷新间隔（分钟）</label><input id="cfg-interval" type="number" min="1"></div>
+      <div class="field"><label>默认监控抓取引擎</label>
+        <div class="radio-row">
+          <label><input type="radio" name="cfg-scraper" value="requests"> requests（轻量）</label>
+          <label><input type="radio" name="cfg-scraper" value="playwright" checked> playwright（本地 Edge/Chrome）</label>
+        </div></div>
+      <div class="field"><label>下载目录</label><input id="cfg-dldir"></div>
+      <div class="field"><label>开机启动</label>
+        <div class="switch-row">
+          <button class="switch" id="cfg-startup" onclick="toggleStartup()"></button>
+          <span class="txt">随系统启动自动运行 rss-todo</span>
+        </div></div>
+      <div><button class="btn primary" onclick="saveSettings()">保存设置</button></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 下载面板 -->
+<div class="modal-mask" id="dlModal">
+  <div class="modal">
+    <h3>下载设置</h3>
+    <div class="dl-preview"><div class="cov" id="dlCov"></div><div class="t" id="dlTitle"></div></div>
+    <div class="field"><label>下载目录</label><input id="dlDir"></div>
+    <div class="field"><label>下载内容</label>
+      <div class="check-row">
+        <label><input type="checkbox" id="dlVideo" checked> 视频（MP4 合并）</label>
+        <label><input type="checkbox" id="dlAudio"> 仅音频（M4A）</label>
+        <label><input type="checkbox" id="dlDanmaku"> 弹幕（XML）</label>
+      </div></div>
+    <div class="field"><label>清晰度</label>
+      <select id="dlQuality">
+        <option value="best">最高可用（自动）</option>
+        <option value="1080p">1080P</option>
+        <option value="720p">720P</option>
+        <option value="480p">480P</option>
+        <option value="360p">360P</option>
+      </select></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal('dlModal')">取消</button>
+      <button class="btn primary" onclick="startDownload()">开始下载</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增/编辑监控 -->
+<div class="modal-mask" id="monModal">
+  <div class="modal">
+    <h3 id="monModalTitle">新增监控</h3>
+    <input type="hidden" id="monId">
+    <input type="hidden" id="monType" value="">
+    <input type="hidden" id="monAid" value="">
+    <input type="hidden" id="monField" value="">
+    <div class="field"><label>名称</label><input id="monName" placeholder="如：某UP直播/视频指标"></div>
+    <div class="field"><label>链接（UP 主页 → 监控直播/数据；视频链接 → 监控指标，自动识别）</label>
+      <input id="monPageUrl" placeholder="https://space.bilibili.com/123456 或 https://www.bilibili.com/video/BV...">
+      <div id="monInspectResult" style="margin-top:8px"></div>
+    </div>
+    <div id="monItemArea" style="display:none"></div>
+    <div id="monXpathSection" style="display:none">
+      <div style="text-align:center;color:var(--txt3);font-size:12px;margin:6px 0">— 或手动填 XPath（老规则）—</div>
+      <div class="field"><label>网页 URL</label><input id="monUrl" placeholder="https://..."></div>
+      <div class="field"><label>XPath</label><input id="monXpath" placeholder="//span[@class='price']/text()"></div>
+      <div class="field"><label>抓取引擎</label>
+        <div class="radio-row">
+          <label><input type="radio" name="monScraper" value="requests"> requests（轻量）</label>
+          <label><input type="radio" name="monScraper" value="playwright" checked> playwright（本地 Edge/Chrome）</label>
+        </div></div>
+    </div>
+    <div class="field"><label>刷新间隔（分钟，留空用全局默认）</label><input id="monInterval" type="number" min="1"></div>
+    <div class="field"><label>标签（可多个，自定义颜色）</label>
+      <div style="display:flex;gap:8px">
+        <input id="monTagText" placeholder="标签文字" style="flex:1">
+        <button class="btn" onclick="addTag()">添加</button>
+      </div>
+      <div class="color-row" id="monColorRow"></div>
+      <div class="tag-edit" id="monTags"></div>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal('monModal')">取消</button>
+      <button class="btn primary" onclick="saveMonitor()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增/编辑订阅 -->
+<div class="modal-mask" id="subModal">
+  <div class="modal">
+    <h3 id="subModalTitle">新增订阅</h3>
+    <input type="hidden" id="subId">
+    <div class="field"><label>名称</label><input id="subName" placeholder="如：码农老张"></div>
+    <div class="field"><label>UP 链接 / UID / 视频合集链接（自动识别）</label>
+      <input id="subUidInput" placeholder="https://space.bilibili.com/xxx、纯 UID，或视频/BV 链接">
+      <div style="margin-top:6px"><span class="uid" id="subUidShow"></span></div>
+      <div id="ugcInline" style="display:none;margin-top:8px"></div></div>
+    <div class="field"><label>关键词（逗号分隔，需全部命中）</label><input id="subKeywords" placeholder="爬虫, 教程, Flask"></div>
+    <div class="field"><label>排除关键词（逗号分隔，标题命中则不入清单）</label><input id="subExclude" placeholder="如：预告, PV, 先行图"></div>
+    <div class="field"><label>抓取条数（>50 自动翻页）</label><input id="subDepth" type="number" min="1" max="1000" placeholder="默认 30"></div>
+    <div class="field"><label>刷新间隔（分钟，留空用全局默认）</label><input id="subInterval" type="number" min="1"></div>
+    <div class="field"><label>启用</label>
+      <div class="switch-row"><button class="switch on" id="subEnabled" onclick="this.classList.toggle('on')"></button></div></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal('subModal')">取消</button>
+      <button class="btn primary" onclick="saveSubscription()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <div class="t-ico" id="toastIco"></div>
+  <div><div class="t-title" id="toastTitle"></div><div class="t-desc" id="toastDesc"></div></div>
+</div>
+
+<!-- 扫码登录 -->
+<div class="modal-mask" id="qrModal">
+  <div class="modal" style="width:340px">
+    <h3>扫码登录 B 站</h3>
+    <div style="font-size:12px;color:var(--txt3);margin-bottom:10px">打开 B 站 App 扫描下方二维码，在手机上确认登录</div>
+    <div id="qrBox" style="display:flex;justify-content:center;margin:10px 0"></div>
+    <div id="qrStatus" style="text-align:center;color:var(--txt2);font-size:13px;min-height:22px"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeModal('qrModal')">关闭</button>
+      <button class="btn" onclick="openQrLogin()" id="qrRegen" style="display:none">重新生成二维码</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
