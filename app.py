@@ -1,10 +1,10 @@
-"""rss-todo 入口：启动 Flask 本地服务 + 自动打开浏览器。"""
+"""rss-todo 入口：启动 Flask 本地服务 + 用 playwright 打开应用窗口（无地址栏）。"""
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import threading
-import webbrowser
 from pathlib import Path
 
 # exe（PyInstaller onefile）模式下 __file__ 指向解包临时目录，
@@ -47,6 +47,9 @@ class AppContext:
         self.monitor_checker = MonitorChecker(self.monitor_rules, self.storage, self.config)
         self.qr_login = QrLogin()
         self.last_refresh: dict = {}
+        # 应用窗口（playwright）：browser/playwright 由窗口打开线程注入
+        self.browser = None
+        self.playwright = None
         self.scheduler.set_monitor_hook(self.monitor_checker.check)
         # 重启恢复：未完成的下载任务重新入队
         self.downloader.recover_pending()
@@ -81,6 +84,25 @@ def _cli_port() -> int | None:
     return None
 
 
+def _open_app_window(ctx, url: str) -> None:
+    """playwright 打开本地 Edge/Chrome 应用窗口：无地址栏/标签页，只显示网页。
+
+    --app 模式即浏览器 Kiosk 风格；窗口关闭（点 X）时整个程序退出。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        p = sync_playwright().start()
+        ctx.playwright = p
+        browser = p.chromium.launch(
+            channel="msedge", headless=False,
+            args=[f"--app={url}", "--window-size=1280,820"])
+        ctx.browser = browser
+        browser.on("disconnected", lambda _b: os._exit(0))
+        logging.info("应用窗口已打开: %s", url)
+    except Exception as e:
+        logging.warning("应用窗口启动失败，请手动访问 %s：%s", url, e)
+
+
 def main() -> None:
     no_browser = "--no-browser" in sys.argv
     app = create_app()
@@ -88,7 +110,7 @@ def main() -> None:
     port = _cli_port() or int(ctx.config.get("port", 8848) or 8848)
     ctx.scheduler.start()
     if not no_browser:
-        threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+        threading.Timer(1.2, _open_app_window, args=(ctx, f"http://127.0.0.1:{port}")).start()
     try:
         app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
     finally:

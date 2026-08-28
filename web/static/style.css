@@ -35,6 +35,11 @@ body { background: var(--bg); color: var(--txt); font: 14px/1.6 -apple-system, "
 .refresh-btn .spin { width: 13px; height: 13px; border: 2px solid var(--border2); border-top-color: var(--pink); border-radius: 50%; }
 .refresh-btn.loading .spin { animation: rot 1s linear infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
+.win-btn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--card); color: var(--txt2); cursor: pointer; font-size: 14px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; }
+.win-btn:hover { border-color: var(--pink); color: var(--pink-deep); }
+.win-btn.del:hover { border-color: var(--red); color: var(--red); }
 
 .main { max-width: 1080px; margin: 0 auto; padding: 22px 24px 80px; }
 .page { display: none; }

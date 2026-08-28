@@ -1070,6 +1070,17 @@ $("refreshBtn").addEventListener("click", () => {
   });
 });
 
+/* 窗口控制：最小化 / 退出（退出同时关后端进程与浏览器窗口） */
+$("minBtn").addEventListener("click", () => {
+  api("/api/window/minimize", { method: "POST" }).catch((e) => toast("操作失败", e.message));
+});
+
+$("exitBtn").addEventListener("click", () => {
+  if (!confirm("退出程序？将同时关闭后台服务。")) return;
+  api("/api/shutdown", { method: "POST" }).catch(() => {});
+  setTimeout(() => { toast("正在退出…", ""); }, 300);
+});
+
 function closeModal(id) { $(id).classList.remove("show"); }
 document.querySelectorAll(".modal-mask").forEach((m) => {
   // 所有弹窗统一：单击阴影不关闭（防误触丢输入），双击阴影退出

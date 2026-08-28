@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -30,6 +31,48 @@ def _ctx():
 # ---------- 页面 ----------
 @api.get("/api/health")
 def health():
+    return jsonify({"ok": True})
+
+
+# ---------- 窗口控制（应用窗口模式） ----------
+@api.post("/api/window/minimize")
+def win_minimize():
+    """最小化当前应用窗口（Windows，后台线程执行避免阻塞请求）。"""
+
+    def _min():
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+        except Exception:
+            pass
+
+    threading.Thread(target=_min, daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@api.post("/api/shutdown")
+def shutdown():
+    """退出程序：先优雅停调度/下载/存储 + 关浏览器窗口，再结束进程。"""
+    ctx = _ctx()
+
+    def _do():
+        time.sleep(0.4)
+        try:
+            ctx.shutdown()
+        except Exception:
+            pass
+        try:
+            if getattr(ctx, "browser", None):
+                ctx.browser.close()
+            if getattr(ctx, "playwright", None):
+                ctx.playwright.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    threading.Thread(target=_do, daemon=True).start()
     return jsonify({"ok": True})
 
 
