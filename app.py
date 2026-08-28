@@ -88,6 +88,7 @@ def _open_app_window(ctx, url: str) -> None:
     """playwright 打开本地 Edge/Chrome 应用窗口：无地址栏/标签页，只显示网页。
 
     --app 模式即浏览器 Kiosk 风格；窗口关闭（点 X）时整个程序退出。
+    启动失败时退回系统默认浏览器，保证一定能看到界面。
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -100,7 +101,12 @@ def _open_app_window(ctx, url: str) -> None:
         browser.on("disconnected", lambda _b: os._exit(0))
         logging.info("应用窗口已打开: %s", url)
     except Exception as e:
-        logging.warning("应用窗口启动失败，请手动访问 %s：%s", url, e)
+        logging.warning("应用窗口启动失败(%s)，退回系统浏览器：%s", type(e).__name__, e)
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
 
 
 def main() -> None:
