@@ -9,7 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import create_app  # noqa: E402
 from core.adapters.base import VideoItem  # noqa: E402
@@ -75,10 +75,10 @@ try:
     assert r.status_code == 404, f"DELETE 不存在订阅应 404: {r.status_code}"
     ok()
 
-    # 新增 keywords 为空 -> 400
+    # 新增 keywords 为空 -> 允许（全量跟踪最新 fetch_depth 条）
     r = client.post("/api/subscriptions",
                     json={"name": "x", "config": {"uid": 1, "keywords": []}})
-    assert r.status_code == 400, f"空 keywords 应 400: {r.status_code} {r.get_json()}"
+    assert r.status_code == 200, f"空 keywords 应 200: {r.status_code} {r.get_json()}"
     ok()
 
     # parse-uid 非法 URL -> 400

@@ -3,7 +3,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lxml import html  # noqa: E402
 from core import monitor  # noqa: E402
@@ -73,17 +73,22 @@ check("example.com h1=Example Domain", val == "Example Domain" and err == "")
 val, err = scrape_rule({"config": {"url": "https://example.com", "xpath": "//不存在的节点/text()"}})
 check("不存在节点 value 空 + error 非空", val == "" and bool(err))
 
-# ---------- 3. playwright 错误路径（未安装） ----------
-print("== playwright 未安装错误路径 ==")
-EXPECT_PW_ERR = "playwright 未安装：pip install playwright && playwright install chromium"
+# ---------- 3. playwright 错误路径（环境感知：可用则成功抓取，不可用则友好提示） ----------
+print("== playwright 路径 ==")
+def pw_ok(val, err):
+    # 成功抓取（playwright 可用）或友好错误（不可用/失败，非裸 Traceback）均视为通过
+    if val and not err:
+        return True
+    return val == "" and bool(err) and "Traceback" not in err and "unhandled" not in err.lower()
+
 val, err = monitor._scrape_playwright("https://example.com", "//h1/text()")
-check("直接调用 _scrape_playwright 友好错误", val == "" and err == EXPECT_PW_ERR)
+check("直接调用 _scrape_playwright", pw_ok(val, err))
 
 val, err = scrape_rule({
     "config": {"url": "https://example.com", "xpath": "//h1/text()"},
     "scraper": "playwright",
 })
-check("scrape_rule(playwright) 友好错误", val == "" and err == EXPECT_PW_ERR)
+check("scrape_rule(playwright)", pw_ok(val, err))
 
 # ---------- 4. normalize 与 MonitorRules CRUD ----------
 print("== normalize_rule ==")

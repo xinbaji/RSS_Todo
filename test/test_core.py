@@ -4,7 +4,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.matcher import match_keywords  # noqa: E402
 from core.rules import Subscriptions, normalize_subscription, parse_uid_from_url  # noqa: E402
@@ -57,8 +57,8 @@ check("normalize 默认 all", normalize_subscription({
     "name": "测试UP", "config": {"uid": 123, "keywords": ["爬虫"]}})["config"]["match_logic"] == "all")
 check("normalize 缺 uid 报错", _expect_error(
     lambda: normalize_subscription({"name": "x", "config": {"keywords": ["k"]}})))
-check("normalize 缺关键词报错", _expect_error(
-    lambda: normalize_subscription({"name": "x", "config": {"uid": 1}})))
+check("normalize 空关键词允许(全量跟踪)", normalize_subscription(
+    {"name": "x", "config": {"uid": 1}})["config"]["keywords"] == [])
 check("关键词字符串归一化", normalize_subscription({
     "name": "x", "config": {"uid": 1, "keywords": ["A", {"text": "B"}]}}
 )["config"]["keywords"] == [{"text": "A", "regex": False, "case_sensitive": False},

@@ -423,6 +423,9 @@ def monitor_refresh_all():
 @api.post("/api/monitor/refresh/<rule_id>")
 def monitor_refresh_one(rule_id):
     result = _ctx().monitor_checker.refresh_one(rule_id)
+    # 仅"规则不存在"返回 404；抓取失败（如 XPath 未匹配）应 200 + error 字段
+    if not result.get("ok") and result.get("error") == "规则不存在":
+        return jsonify(result), 404
     return jsonify(result)
 
 

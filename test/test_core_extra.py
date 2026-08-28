@@ -5,7 +5,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.matcher import match_keywords  # noqa: E402
 from core.rules import Subscriptions, normalize_subscription, parse_uid_from_url  # noqa: E402
@@ -73,9 +73,9 @@ check("uid 传字符串数字归一化", normalize_subscription({
 check("fetch_depth=None 归默认 30", normalize_subscription({
     "name": "x", "config": {"uid": 1, "keywords": ["k"], "fetch_depth": None}}
 )["config"]["fetch_depth"] == 30)
-check("fetch_depth 超范围不崩溃", normalize_subscription({
+check("fetch_depth 超范围钳制到上限 1000", normalize_subscription({
     "name": "x", "config": {"uid": 1, "keywords": ["k"], "fetch_depth": 99999}}
-)["config"]["fetch_depth"] == 99999)
+)["config"]["fetch_depth"] == 1000)
 
 with tempfile.TemporaryDirectory() as td:
     subs = Subscriptions(td)

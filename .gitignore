@@ -34,3 +34,5 @@ dist_old/
 desktop/node_modules/
 desktop/release/
 desktop/resources/
+.e2e_dl/
+.e2e_storage/

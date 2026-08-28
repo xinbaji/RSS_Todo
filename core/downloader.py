@@ -13,8 +13,7 @@ import time
 from pathlib import Path
 
 import requests
-import yt_dlp
-from imageio_ffmpeg import get_ffmpeg_exe
+# yt_dlp / imageio_ffmpeg 为重型依赖，改为下载时才导入，加快启动速度
 
 from .storage import (DL_CANCELED, DL_FAILED, DL_PENDING, DL_RUNNING, DL_SUCCESS)
 
@@ -192,6 +191,7 @@ class DownloadManager:
             self._cancel.discard(dl_id)
 
     def _build_opts(self, dl: dict, folder: Path, hook, mode: str = "video") -> dict:
+        from imageio_ffmpeg import get_ffmpeg_exe  # 惰性导入
         opts = {
             "format": QUALITY_FORMAT.get(dl["quality"], "bv*+ba/b"),
             "outtmpl": str(folder / "%(title)s.%(ext)s"),
@@ -228,6 +228,7 @@ class DownloadManager:
                 raise DownloadCanceled()
 
         opts = self._build_opts(dl, folder, hook, mode)
+        import yt_dlp  # 惰性导入（重型依赖）
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([dl["url"]])
 

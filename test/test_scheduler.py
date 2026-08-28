@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.config import Config  # noqa: E402
 from core.rules import Subscriptions  # noqa: E402

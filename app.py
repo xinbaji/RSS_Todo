@@ -129,11 +129,24 @@ def _open_app_window(ctx, url: str) -> None:
             pass
 
 
+def _add_file_log(data_dir: Path) -> None:
+    """日志写入 data/log/rss_todo.log（文件归类），不影响 stdout 输出。"""
+    try:
+        log_dir = data_dir / "log"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(log_dir / "rss_todo.log", encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(fh)
+    except Exception:
+        pass  # 日志文件不可写时静默降级为仅 stdout
+
+
 def main() -> None:
     no_browser = "--no-browser" in sys.argv
     app = create_app()
     ctx = app.extensions["ctx"]
     port = _cli_port() or int(ctx.config.get("port", 8848) or 8848)
+    _add_file_log(ctx.config.data_dir)
     ctx.scheduler.start()
     if not no_browser:
         threading.Timer(1.2, _open_app_window, args=(ctx, f"http://127.0.0.1:{port}")).start()

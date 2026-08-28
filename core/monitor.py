@@ -298,7 +298,10 @@ def _scrape_playwright(url: str, xpath: str) -> tuple[str, str]:
                 return "", "未匹配到 XPath 内容（页面结构可能变化）"
             return value, ""
         finally:
-            browser.close()
+            try:
+                browser.close()  # 关闭失败不影响抓取结果
+            except Exception:
+                pass
 
 
 def _split_pw_xpath(xpath: str) -> tuple[str, str | None]:
