@@ -22,6 +22,7 @@ jobs:
             core.setOutput("has_version", m ? "true" : "false");
             if (m) core.setOutput("version", m[1]);
 
+      # ---- 阶段一：Python 后端 exe（PyInstaller） ----
       - name: 安装 Python
         if: steps.ver.outputs.has_version == 'true'
         uses: actions/setup-python@v5
@@ -29,41 +30,71 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - name: 安装依赖
+      - name: 安装后端依赖
         if: steps.ver.outputs.has_version == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: 打包单文件 exe（playwright 走系统 Edge channel，不下载 chromium）
+      - name: 打包后端单文件 exe（playwright 走系统 Edge，不下载 chromium）
         if: steps.ver.outputs.has_version == 'true'
         run: python build_exe.py
 
-      - name: 冒烟测试 exe（启动服务并请求首页）
+      - name: 冒烟测试后端 exe
         if: steps.ver.outputs.has_version == 'true'
         shell: bash
         run: |
           ./dist/RSS_Todo.exe --no-browser --port 18848 &
           for i in $(seq 1 40); do
-            curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18848/ && break || sleep 1
+            curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18848/ 2>/dev/null | grep -q 200 && break || sleep 1
           done
-          code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18848/)
-          echo "首页 HTTP: $code"
-          test "$code" = "200"
-          curl -s http://127.0.0.1:18848/api/health || true
+          test "$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18848/)" = "200"
+          curl -s http://127.0.0.1:18848/api/health | grep -q '"ok":true'
+          curl -s -X POST http://127.0.0.1:18848/api/shutdown >/dev/null || true
 
-      - name: 上传 artifact（供下载调试）
+      # ---- 阶段二：Electron 桌面壳（内嵌后端 exe） ----
+      - name: 拷贝后端 exe 到 desktop/resources
+        if: steps.ver.outputs.has_version == 'true'
+        run: |
+          New-Item -ItemType Directory -Force desktop/resources | Out-Null
+          Copy-Item dist/RSS_Todo.exe desktop/resources/backend.exe
+
+      - name: 安装 Node
+        if: steps.ver.outputs.has_version == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装 Electron 依赖
+        if: steps.ver.outputs.has_version == 'true'
+        working-directory: desktop
+        run: npm install
+
+      - name: electron-builder 打包（nsis 安装包，maximum 压缩）
+        if: steps.ver.outputs.has_version == 'true'
+        working-directory: desktop
+        run: npx electron-builder --win --publish never
+
+      - name: 验证产物
+        if: steps.ver.outputs.has_version == 'true'
+        shell: bash
+        run: |
+          ls -la desktop/release/*.exe
+          test -f desktop/release/*.exe
+
+      - name: 上传 nsis 安装包（artifact）
         if: steps.ver.outputs.has_version == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: RSS_Todo-${{ steps.ver.outputs.version }}.exe
-          path: dist/RSS_Todo.exe
+          name: RSS_Todo-Setup-${{ steps.ver.outputs.version }}.exe
+          path: desktop/release/*.exe
 
-      - name: 发布 Release（只放改名后的单文件 exe）
+      - name: 发布 Release（Electron 安装包）
         if: steps.ver.outputs.has_version == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           name: RSS_Todo v${{ steps.ver.outputs.version }}
-          files: dist/RSS_Todo.exe
+          files: |
+            desktop/release/*.exe
           fail_on_unmatched_files: true

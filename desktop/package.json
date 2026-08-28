@@ -1,0 +1,34 @@
+{
+  "name": "rss-todo-desktop",
+  "version": "0.1.2",
+  "description": "RSS_Todo 桌面壳（内嵌后端 exe）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.7.6",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.rsstodo.desktop",
+    "productName": "RSS_Todo",
+    "directories": { "output": "release" },
+    "compression": "maximum",
+    "asar": true,
+    "files": ["main.js", "package.json"],
+    "extraResources": [
+      { "from": "resources/backend.exe", "to": "backend.exe" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": true
+    }
+  }
+}

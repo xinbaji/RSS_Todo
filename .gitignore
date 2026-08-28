@@ -31,3 +31,6 @@ Thumbs.db
 *.local
 build_old/
 dist_old/
+desktop/node_modules/
+desktop/release/
+desktop/resources/
