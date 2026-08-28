@@ -1012,6 +1012,14 @@ async function saveSettings() {
   } catch (e) { toast("保存失败", e.message); }
 }
 
+/* 打开下载目录 */
+$("cfg-open-dldir").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/open-download-dir", { method: "POST" });
+    if (res.ok) toast("已打开", res.path);
+  } catch (e) { toast("打开失败", e.message); }
+});
+
 async function toggleStartup() {
   const el = $("cfg-startup");
   const enabled = !el.classList.contains("on");

@@ -200,6 +200,10 @@ body { background: var(--bg); color: var(--txt); font: 14px/1.6 -apple-system, "
 .radio-row { display: flex; gap: 18px; padding: 6px 0; flex-wrap: wrap; }
 .radio-row label { display: flex; align-items: center; gap: 6px; color: var(--txt); font-size: 13px; cursor: pointer; }
 .radio-row input { accent-color: var(--pink); }
+.input-row { display: flex; gap: 8px; align-items: center; }
+.input-row .btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--card); color: var(--txt); cursor: pointer; font-size: 13px; white-space: nowrap; }
+.input-row .btn:hover { border-color: var(--pink); }
 .switch-row { display: flex; align-items: center; gap: 10px; }
 .switch-row .txt { font-size: 13px; }
 

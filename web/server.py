@@ -427,6 +427,25 @@ def config_get():
     return jsonify(_ctx().config.all())
 
 
+@api.post("/api/open-download-dir")
+def open_download_dir():
+    """在系统文件管理器中打开下载目录。"""
+    ctx = _ctx()
+    dl = str(ctx.config.get("download_dir") or "")
+    try:
+        d = Path(dl)
+        if not d.is_absolute():
+            d = ctx.config.data_dir / "downloads"
+        d.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(str(d))  # Windows 资源管理器
+        else:
+            subprocess.Popen(["xdg-open", str(d)])
+        return jsonify({"ok": True, "path": str(d)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @api.put("/api/config")
 def config_put():
     ctx = _ctx()

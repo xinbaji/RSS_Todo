@@ -93,7 +93,12 @@
           <label><input type="radio" name="cfg-scraper" value="requests"> requests（轻量）</label>
           <label><input type="radio" name="cfg-scraper" value="playwright" checked> playwright（本地 Edge/Chrome）</label>
         </div></div>
-      <div class="field"><label>下载目录</label><input id="cfg-dldir"></div>
+      <div class="field"><label>下载目录</label>
+        <div class="input-row">
+          <input id="cfg-dldir" style="flex:1">
+          <button class="btn" id="cfg-open-dldir" title="打开下载目录">打开</button>
+        </div>
+      </div>
       <div class="field"><label>开机启动</label>
         <div class="switch-row">
           <button class="switch" id="cfg-startup" onclick="toggleStartup()"></button>
