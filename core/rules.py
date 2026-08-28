@@ -73,8 +73,7 @@ def normalize_subscription(raw: dict, idx: int = 0) -> dict:
     if fetch_mode not in VALID_FETCH_MODES:
         fetch_mode = "latest"
     keywords = _norm_keywords(raw.get("config", {}).get("keywords", []))
-    if not keywords and adapter != "ugc":  # ugc 合成订阅不参与关键词筛选
-        raise RuleError(f"[{idx}] 订阅 {name} 未配置任何关键词")
+    # 关键词允许为空：空 = 跟踪该订阅最新 fetch_depth 条视频（scheduler 全量入待办，去重）
     interval = int(raw.get("refresh_interval_minutes", 0) or 0)
     if interval <= 0:
         # 全量模式未显式配置间隔时，默认拉长（风控）

@@ -914,7 +914,7 @@ async function saveSubscription() {
     let uid = parsedUid;
     if (!uid && /^\d{6,12}$/.test(uidInput)) uid = parseInt(uidInput, 10);
     if (!uid) { toast("提示", "请先解析 UID 或输入有效 UID"); return; }
-    if (keywords.length === 0) { toast("提示", "请至少填一个关键词"); return; }
+    // 关键词为空：按 fetch_depth 自动跟踪最新 N 条（保存时立即抓取一次）
     body = {
       name: $("subName").value.trim(),
       enabled: $("subEnabled").classList.contains("on"),
@@ -940,7 +940,18 @@ async function saveSubscription() {
       if (imp.err) toast("已保存", `订阅已保存，但导入分P 失败：${imp.err}`);
       else toast("已保存", `合集订阅已保存，导入 ${imp.imported} 集 · 跳过 ${imp.skipped}（已存在）`);
     } else {
-      toast("已保存", "订阅已更新");
+      let msg = "订阅已更新";
+      // 新建且关键词为空：立即按深度抓取最新视频（去重自动处理）
+      if (!id && keywords.length === 0 && res.subscription) {
+        try {
+          const fr = await api(`/api/refresh/${res.subscription.id}?sync=1`, { method: "POST" });
+          const n = fr.new ?? 0;
+          msg = n > 0
+            ? `已保存，自动抓取最新 ${n} 条视频入待办`
+            : "已保存，没有新的视频（均已存在）";
+        } catch (e) { msg = `已保存，抓取失败：${e.message}`; }
+      }
+      toast("已保存", msg);
     }
     closeModal("subModal");
     loadSubs();

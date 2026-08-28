@@ -99,6 +99,9 @@ class Scheduler:
                 else:
                     matched = match_keywords(v.title, sub["config"]["keywords"],
                                              sub["config"].get("match_logic", "any"))
+                    # 关键词为空：跟踪该订阅最新 fetch_depth 条视频（去重由 seen 机制保证）
+                    if not matched and not sub["config"].get("keywords"):
+                        matched = [sub.get("name") or "全部"]
                 if matched and not is_excluded(
                         v.title, sub["config"].get("exclude_keywords", [])):
                     vitem = {

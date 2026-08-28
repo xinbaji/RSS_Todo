@@ -138,8 +138,13 @@ def refresh_status():
 @api.post("/api/refresh/<sub_id>")
 def refresh_one(sub_id):
     ctx = _ctx()
-    if not ctx.subs.get(sub_id):
+    sub = ctx.subs.get(sub_id)
+    if not sub:
         return jsonify({"error": "订阅不存在"}), 404
+    if request.args.get("sync") == "1":
+        # 同步刷新：立即抓取并返回结果（用于保存订阅后立即按深度抓取）
+        res = ctx.scheduler.refresh_subscription(sub)
+        return jsonify({"ok": True, **res})
     ctx.scheduler.refresh_in_background(target=sub_id, on_done=ctx.on_refresh_done)
     return jsonify({"ok": True, "message": "刷新已启动"})
 
