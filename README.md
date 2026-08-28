@@ -31,22 +31,34 @@ python app.py --port 9000 --no-browser
 > playwright 使用本机 Edge/Chrome 的 channel（无头模式），**不需要** `playwright install chromium`。
 > 未安装 playwright 时，仅"页面 XPath 监控（playwright 抓取）"不可用，其余功能正常。
 
-## 打包单文件 exe（本地）
+## 打包（三种方式）
+
+### 1. 单文件后端 exe（含 playwright 壳）
 
 ```bash
 pip install -r requirements.txt pyinstaller
-python build_exe.py     # 产物 dist/RSS_Todo.exe
+python build_exe.py     # 产物 dist/RSS_Todo.exe（含 playwright kiosk 窗口）
 ```
 
-- PyInstaller onefile；`--collect-all playwright` 内置 driver（仍复用系统 Edge/Chrome，不下载浏览器）
-- 自动裁剪无用的重型库（tkinter/PIL/numpy 等）；检测到 UPX 时自动压缩
-- 冒烟验证：`dist/RSS_Todo.exe --no-browser --port 8848` 后访问 `http://127.0.0.1:8848`
+### 2. Electron 桌面应用（推荐分发）
 
-## GitHub 自动构建发版
+Electron 壳（`desktop/`）内嵌后端 exe 作为子进程，真桌面窗口（无浏览器 UI、原生窗口控制）：
+
+```bash
+# 1) 先打后端 exe
+python build_exe.py
+# 2) 拷进 Electron 资源目录
+mkdir -p desktop/resources && cp dist/RSS_Todo.exe desktop/resources/backend.exe
+# 3) 打包 Electron（nsis 安装包）
+cd desktop && npm install && npm run dist
+# 产物 desktop/release/RSS_Todo Setup x.y.z.exe
+```
+
+### 3. GitHub 自动构建发版
 
 推送 commit message 含版本号（如 `feat: xxx v1.0.0`）到 `main`，触发 `.github/workflows/release.yml`：
 
-- windows-latest 构建 → 冒烟测试 exe → 发布 Release（`RSS_Todo-v1.0.0.exe`）
+- windows-latest 构建：Python 后端 exe 冒烟 → Electron 壳打包 → 发布 Release（安装包）
 
 ## 配置与数据
 
@@ -64,7 +76,7 @@ python build_exe.py     # 产物 dist/RSS_Todo.exe
 ## 目录结构
 
 ```
-app.py                 # 入口（Flask + 调度器 + 自动开浏览器）
+app.py                 # 入口（Flask + 调度器 + 自动开窗口）
 core/
   adapters/            # bilibili / ugc(分P合集) 抓取适配器
   bilibili_*.py        # 登录 / 视频统计 / 合集解析
@@ -75,7 +87,8 @@ core/
   storage.py           # SQLite 存储
   downloader.py        # yt-dlp 下载
 web/                   # Flask 蓝图 + 前端（原生 JS）
-build_exe.py           # PyInstaller 打包脚本
+build_exe.py           # PyInstaller 后端 exe 打包脚本
+desktop/               # Electron 桌面壳（内嵌后端 exe）
 ```
 
 ## License
