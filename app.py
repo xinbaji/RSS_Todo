@@ -95,12 +95,17 @@ def _open_app_window(ctx, url: str) -> None:
         ctx.playwright = p
         browser = p.chromium.launch(
             channel="msedge", headless=False,
-            args=["--window-size=1280,820"])
+            args=["--kiosk",                     # 全屏无地址栏（重点）
+                  "--disable-infobars",
+                  "--disable-blink-features=AutomationControlled",
+                  "--disable-dev-shm-usage",
+                  "--no-sandbox",
+                  "--window-size=1280,820"])
         ctx.browser = browser
         page = browser.new_page()
         page.goto(url)
         browser.on("disconnected", lambda _b: os._exit(0))
-        logging.info("浏览器窗口已打开: %s", url)
+        logging.info("浏览器窗口已打开(kiosk): %s", url)
     except Exception as e:
         logging.warning("浏览器窗口启动失败(%s)，退回系统浏览器：%s", type(e).__name__, e)
         try:
