@@ -7,10 +7,24 @@ import sys
 import threading
 from pathlib import Path
 
-# exe（PyInstaller onefile）模式下 __file__ 指向解包临时目录，
-# 数据目录必须固定在 exe 所在目录，保证重启数据不丢
-BASE = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
-        else Path(__file__).resolve().parent)
+# Windows 打包后控制台默认 cp936，traceback 中文乱码 → 强制 UTF-8
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
+def _data_base() -> Path:
+    """数据目录：frozen（打包后）写到 %LOCALAPPDATA%/RSS_Todo，避免装在 Program Files
+    等系统目录时无写权限；源码运行时用脚本所在目录。"""
+    if getattr(sys, "frozen", False):
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "RSS_Todo"
+    return Path(__file__).resolve().parent
+
+
+BASE = _data_base()
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 

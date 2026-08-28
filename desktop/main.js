@@ -50,24 +50,19 @@ function startBackend() {
   log("spawn 后端:", exe);
   backend = spawn(exe, ["--no-browser", "--port", String(PORT)], {
     windowsHide: true,
+    stdio: "ignore",  // PyInstaller bootloader 在某些环境对 pipe 阻塞，直接忽略子进程 IO
   });
-  // 收集后端早期错误（spawn 失败 / 后端 5 秒内退出 → 立即 fail-fast，避免等 40 秒）
-  let stderrBuf = "";
-  let earlyExit = null;
-  backend.stderr?.on("data", (c) => { stderrBuf += c.toString(); });
-  backend.on("error", (e) => { earlyExit = e.message; });
+  // 后端异常退出（如缺依赖/被杀软拦截）时立即提示
+  backend.on("error", (e) => { log("后端 spawn error:", e.message); });
   backend.on("exit", (code, signal) => {
     log("后端已退出", { code, signal });
     if (win && !win.isDestroyed() && code !== 0 && code != null) {
-      const reason = stderrBuf.trim() || `exit code ${code}${signal ? " signal "+signal : ""}`;
-      dialog.showErrorBox("RSS_Todo 后端异常退出", `后端进程未能正常运行。\n\n退出信息：${reason}\n\n请把此信息反馈给开发者。`);
+      dialog.showErrorBox("RSS_Todo 后端异常退出", `后端进程未能正常运行（exit code ${code}）。`);
       app.quit();
     } else if (win && !win.isDestroyed()) {
       app.quit();
     }
   });
-  backend._earlyError = () => earlyExit;
-  backend._stderr = () => stderrBuf;
 }
 
 function shutdownBackend() {
@@ -90,7 +85,8 @@ function createWindow() {
     title: "RSS_Todo",
     backgroundColor: "#12151b",
   });
-  win.loadURL(`http://127.0.0.1:${PORT}`);
+  // 先显示本地加载页（立即渲染，无黑屏），后端就绪后跳转真实页面
+  win.loadFile(path.join(__dirname, "loading.html"));
   win.on("closed", () => { win = null; });
 }
 
@@ -119,16 +115,16 @@ app.whenReady().then(async () => {
     log("后端已就绪");
   } catch (e) {
     log("后端启动失败:", e.message);
-    const stderr = backend._stderr?.() || "";
-    const detail = stderr ? `\n\n后端输出：\n${stderr.slice(0, 500)}` : "";
     dialog.showErrorBox("RSS_Todo 启动失败",
-      `后端服务未能在规定时间内启动，请检查端口 ${PORT} 是否被占用。\n\n${e.message}${detail}`);
+      `后端服务未能在规定时间内启动，请检查端口 ${PORT} 是否被占用。\n\n${e.message}`);
     app.quit();
     return;
   }
   try {
     createWindow();
     log("窗口已创建");
+    // 后端就绪后再加载真实页面（消除黑屏）
+    win.loadURL(`http://127.0.0.1:${PORT}`);
   } catch (e) {
     log("窗口创建失败:", e.message);
   }

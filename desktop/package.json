@@ -17,7 +17,7 @@
     "directories": { "output": "release" },
     "compression": "maximum",
     "asar": true,
-    "files": ["main.js", "package.json"],
+    "files": ["main.js", "package.json", "loading.html"],
     "extraResources": [
       { "from": "resources/backend.exe", "to": "backend.exe" }
     ],
