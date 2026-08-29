@@ -22,10 +22,24 @@ from core.rules import RuleError, Subscriptions
 
 api = Blueprint("api", __name__)
 
+# 应用元信息（发版时与 desktop/package.json version、commit vX.Y.Z 同步）
+APP_INFO = {
+    "name": "RSS_Todo",
+    "version": "0.1.6",
+    "author": "xinbaji",
+    "repo_url": "https://github.com/xinbaji/RSS_Todo",
+}
+
 
 def _ctx():
     """返回注入到 Flask app.extensions["ctx"] 的 AppContext。"""
     return current_app.extensions["ctx"]
+
+
+# ---------- 应用信息 ----------
+@api.get("/api/app-info")
+def app_info():
+    return jsonify(APP_INFO)
 
 
 # ---------- 页面 ----------

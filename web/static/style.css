@@ -208,6 +208,21 @@ body { background: var(--bg); color: var(--txt); font: 14px/1.6 -apple-system, "
 .mon-cover.gh svg { width: 40px; height: 40px; }
 .mon-sub { font-size: 12px; color: var(--txt2); margin: 2px 0 8px; line-height: 1.4; }
 .switch-row { display: flex; align-items: center; gap: 10px; }
+
+/* 设置页-关于 */
+.about-card { margin-top: 26px; padding-top: 18px; border-top: 1px dashed var(--border2);
+  display: flex; align-items: center; gap: 14px; }
+.about-logo { width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+  background: linear-gradient(135deg, #ff6b9d, #7c4dff); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px; font-weight: 700; }
+.about-info { display: flex; flex-direction: column; gap: 4px; }
+.about-name { font-size: 15px; font-weight: 600; color: var(--txt); }
+.about-meta { font-size: 12px; color: var(--txt2); }
+.about-gh { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--card); color: var(--txt); font-size: 12px; text-decoration: none; }
+.about-gh:hover { border-color: var(--pink); color: var(--pink); }
 .switch-row .txt { font-size: 13px; }
 
 /* B 站账号卡片 */

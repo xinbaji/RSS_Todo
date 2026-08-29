@@ -971,6 +971,13 @@ async function loadSettings() {
     const st = await api("/api/startup");
     $("cfg-startup").classList.toggle("on", !!st.enabled);
     loadAccount();
+    // 关于：填充版本号 / 作者 / GitHub 链接
+    try {
+      const info = await api("/api/app-info");
+      $("aboutName").textContent = info.name || "RSS_Todo";
+      $("aboutMeta").textContent = `v${info.version || "?"} · 作者 ${info.author || ""}`;
+      if (info.repo_url) $("aboutGh").href = info.repo_url;
+    } catch (e) { /* 关于信息加载失败不影响设置页 */ }
   } catch (e) { toast("加载设置失败", e.message); }
 }
 
