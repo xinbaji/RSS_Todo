@@ -25,7 +25,7 @@ api = Blueprint("api", __name__)
 # 应用元信息（发版时与 desktop/package.json version、commit vX.Y.Z 同步）
 APP_INFO = {
     "name": "RSS_Todo",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "author": "xinbaji",
     "repo_url": "https://github.com/xinbaji/RSS_Todo",
 }

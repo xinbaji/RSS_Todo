@@ -1,6 +1,6 @@
 {
   "name": "rss-todo-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "RSS_Todo 桌面壳（内嵌后端 exe）",
   "main": "main.js",
   "scripts": {
@@ -34,7 +34,8 @@
       "createDesktopShortcut": true,
       "deleteAppDataOnUninstall": true,
       "packElevateHelper": false,
-      "differentialPackage": false
+      "differentialPackage": false,
+      "include": "installer.nsh"
     }
   }
 }

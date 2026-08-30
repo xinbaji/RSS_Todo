@@ -165,7 +165,7 @@
 ### 🪟 Windows 用户（推荐）
 
 1. 前往 [**Releases**](https://github.com/xinbaji/RSS_Todo/releases/latest) 下载最新安装包
-2. 解压或运行安装器（`RSS_Todo-v0.1.7.exe`，约 149 MB）
+2. 解压或运行安装器（`RSS_Todo-v0.1.8.exe`，约 149 MB）
 3. 启动 `RSS_Todo` → 自动打开主窗口
 4. 打开「设置」页扫码登录 B 站
 5. 打开「订阅管理」粘贴第一个 UP 主页或视频链接
