@@ -69,13 +69,24 @@ check("parse uid 非法", parse_uid_from_url("https://bilibili.com/") is None)
 
 with tempfile.TemporaryDirectory() as td:
     subs = Subscriptions(td)
-    sub = subs.add({"name": "UP1", "config": {"uid": 111, "keywords": ["教程"], "match_logic": "all"}})
-    check("订阅新增", sub["id"] and sub["enabled"] is True)
-    check("订阅持久化", Subscriptions(td).get(sub["id"]) is not None)
-    subs.update(sub["id"], {"name": "UP2", "config": {"uid": 111, "keywords": ["教程"]}})
-    check("订阅更新", Subscriptions(td).get(sub["id"])["name"] == "UP2")
-    check("订阅删除", subs.remove(sub["id"]) and subs.get(sub["id"]) is None)
-    check("删除不存在", subs.remove("none") is False)
+    try:
+        sub = subs.add({"name": "UP1", "config": {"uid": 111, "keywords": ["教程"], "match_logic": "all"}})
+        check("订阅新增", sub["id"] and sub["enabled"] is True)
+        subs2 = Subscriptions(td)
+        try:
+            check("订阅持久化", subs2.get(sub["id"]) is not None)
+        finally:
+            subs2.close()
+        subs.update(sub["id"], {"name": "UP2", "config": {"uid": 111, "keywords": ["教程"]}})
+        subs3 = Subscriptions(td)
+        try:
+            check("订阅更新", subs3.get(sub["id"])["name"] == "UP2")
+        finally:
+            subs3.close()
+        check("订阅删除", subs.remove(sub["id"]) and subs.get(sub["id"]) is None)
+        check("删除不存在", subs.remove("none") is False)
+    finally:
+        subs.close()
 
 # ---------- storage ----------
 print("== storage ==")

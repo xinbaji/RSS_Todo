@@ -86,7 +86,7 @@ jobs:
         if: steps.ver.outputs.has_version == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: RSS_Todo-Setup-${{ steps.ver.outputs.version }}.exe
+          name: RSS_Todo-v${{ steps.ver.outputs.version }}.exe
           path: desktop/release/*.exe
 
       - name: 发布 Release（Electron 安装包）

@@ -1,69 +1,87 @@
 @echo off
-rem rss-todo 一键启动脚本（GBK 编码，适配中文 Windows 默认代码页）
-setlocal
+rem ============================================================
+rem  RSS_Todo launcher (ASCII only, CRLF - safe for any codepage)
+rem ============================================================
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
+title RSS_Todo
 
 set "PY="
 
-rem 1) 优先使用项目内的 venv
-if exist "venv\Scripts\python.exe" (
-    set "PY=venv\Scripts\python.exe"
+rem ---- 1) project venv ----
+if exist "venv\Scripts\python.exe" set "PY=venv\Scripts\python.exe"
+if not defined PY if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+
+rem ---- 2) Windows Python Launcher (most reliable) ----
+if not defined PY (
+    for /f "delims=" %%i in ('py -3 -c "import sys;print(sys.executable)" 2^>nul') do set "PY=%%i"
 )
 
-rem 2) 否则使用 PATH 中的 python
+rem ---- 3) python on PATH (skip Microsoft Store stub) ----
 if not defined PY (
-    where python >nul 2>nul
-    if not errorlevel 1 set "PY=python"
+    for /f "delims=" %%i in ('where python 2^>nul') do (
+        if not defined PY (
+            echo %%i | findstr /i "WindowsApps" >nul 2>nul
+            if errorlevel 1 (
+                "%%i" -c "import sys" >nul 2>nul
+                if not errorlevel 1 set "PY=%%i"
+            )
+        )
+    )
 )
 
-rem 3) 都没有则给出提示
+rem ---- 4) common install locations as fallback ----
 if not defined PY (
-    echo [错误] 未找到 Python 解释器。
-    echo        请先安装 Python 3.9 及以上版本并勾选 "Add Python to PATH"，
-    echo        或在项目目录下创建 venv 虚拟环境后重试。
+    for /d %%d in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
+        if not defined PY if exist "%%d\python.exe" set "PY=%%d\python.exe"
+    )
+)
+if not defined PY (
+    for /d %%d in ("C:\Python3*") do (
+        if not defined PY if exist "%%d\python.exe" set "PY=%%d\python.exe"
+    )
+)
+
+rem ---- 5) no interpreter found ----
+if not defined PY (
+    echo.
+    echo [ERROR] No Python found.
+    echo         Install Python 3.9+ from https://www.python.org/downloads/
+    echo         and check "Add Python to PATH", then run this script again.
+    echo.
     pause
     exit /b 1
 )
 
-echo 使用解释器: %PY%
+echo Using Python: %PY%
+"%PY%" --version
 
-rem 4) 检查核心依赖是否齐全，缺失则自动安装
-"%PY%" -c "import flask, requests, yt_dlp, imageio_ffmpeg, lxml" >nul 2>nul
+rem ---- 6) dependency check / auto install ----
+"%PY%" -c "import flask, requests, yt_dlp, imageio_ffmpeg, lxml, playwright" >nul 2>nul
 if errorlevel 1 (
     echo.
-    echo [提示] 缺少依赖，正在执行安装：
-    echo        "%PY%" -m pip install -r requirements.txt
+    echo [INFO] Installing dependencies, please wait...
     echo.
     "%PY%" -m pip install -r requirements.txt
     if errorlevel 1 (
         echo.
-        echo [错误] 依赖安装失败，请检查网络后手动执行：
-        echo        "%PY%" -m pip install -r requirements.txt
+        echo [ERROR] Dependency install failed. Run this manually:
+        echo         "%PY%" -m pip install -r requirements.txt
+        echo.
         pause
         exit /b 1
     )
-    echo.
-    echo [完成] 依赖安装完成。
+    echo [OK] Dependencies ready.
 )
 
-rem 5) 检查可选依赖 playwright（监控 JS 页面用，走系统 Edge/Chrome 无需下载 chromium）
-"%PY%" -c "import playwright" >nul 2>nul
-if errorlevel 1 (
-    echo.
-    echo [提示] 未检测到 playwright（监控 JS 页面可选），正在安装：
-    echo        "%PY%" -m pip install -r requirements-optional.txt
-    echo.
-    "%PY%" -m pip install -r requirements-optional.txt
-)
-
-rem 6) 启动应用，保持窗口
+rem ---- 7) launch (keep window) ----
 echo.
-echo 正在启动 rss-todo ... 稍后会自动打开浏览器（默认 http://127.0.0.1:8848）
-echo 支持附加参数，如：--no-browser 不自动打开浏览器、--port 9000 指定端口
-echo 按 Ctrl+C 可停止程序。
+echo Starting RSS_Todo ... browser opens at http://127.0.0.1:8848
+echo Extra args supported: --no-browser  --port 9000
+echo Press Ctrl+C to stop.
 echo.
 "%PY%" app.py %*
 
 echo.
-echo rss-todo 已退出，按任意键关闭窗口。
+echo RSS_Todo exited. Press any key to close.
 pause

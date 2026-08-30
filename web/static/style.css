@@ -150,10 +150,23 @@ body { background: var(--bg); color: var(--txt); font: 14px/1.6 -apple-system, "
 .dl-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .dl-toolbar .sel { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--txt2); margin-right: 6px; cursor: pointer; }
 .dl-toolbar input[type=checkbox] { accent-color: var(--pink); width: 15px; height: 15px; }
+.dl-toolbar .spacer { flex: 1; }
+.dl-new-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 10px; padding: 4px; background: var(--bg2); }
+.dl-new-page { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 8px; cursor: pointer; font-size: 13px; }
+.dl-new-page:hover { background: var(--card); }
+.dl-new-page input { accent-color: var(--pink); width: 15px; height: 15px; flex: none; }
+.dl-new-page .pno { flex: none; font-family: var(--mono); font-size: 11px; color: var(--pink-deep);
+  background: var(--pink-dim); padding: 0 6px; border-radius: 6px; line-height: 18px; }
+.dl-new-page .ptitle { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-new-page .pdur { flex: none; font-size: 11px; color: var(--txt3); font-family: var(--mono); }
 .dl-row { display: flex; align-items: center; gap: 12px; background: var(--card); border: 1px solid var(--border);
   border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; cursor: default; }
 .dl-row:hover { border-color: var(--border2); }
 .dl-row input[type=checkbox] { accent-color: var(--pink); width: 15px; height: 15px; flex: none; }
+.dl-cover { width: 64px; height: 40px; object-fit: cover; border-radius: 6px; flex: none;
+  background: var(--bg2); }
 .dl-title { flex: 0 0 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
 .dl-dir { flex: 1; font-family: var(--mono); font-size: 11px; color: var(--txt3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .progress { flex: 0 0 150px; height: 6px; background: #e9ebef; border-radius: 3px; overflow: hidden; }

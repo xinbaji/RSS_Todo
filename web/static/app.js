@@ -162,7 +162,7 @@ async function setStatus(id, status) {
 }
 
 async function deleteItem(id) {
-  if (!confirm("删除该条目？下次刷新时会重新加入（忽略才不打扰）。")) return;
+  if (!(await confirmDlg("删除该条目？下次刷新时会重新加入（忽略才不打扰）。", { title: "删除条目" }))) return;
   try {
     await api(`/api/items/${id}`, { method: "DELETE" });
     await Promise.all([loadItems(), loadStats()]);
@@ -345,7 +345,7 @@ async function monRefresh(id) {
 }
 
 async function monDelete(id) {
-  if (!confirm("删除该监控规则？")) return;
+  if (!(await confirmDlg("删除该监控规则？", { title: "删除监控规则" }))) return;
   await api(`/api/monitor/rules/${id}`, { method: "DELETE" }).catch((e) => toast("删除失败", e.message));
   loadMonitors();
 }
@@ -615,6 +615,40 @@ async function saveMonitor() {
   } catch (e) { toast("保存失败", e.message); }
 }
 
+/* ============ 通用确认弹窗（替代原生 confirm：kiosk/playwright 窗口原生 confirm 被自动拒绝） ============ */
+let _confirmResolve = null;
+function confirmDlg(msg, opts = {}) {
+  return new Promise((resolve) => {
+    const modal = $("confirmModal"), title = $("confirmTitle"), body = $("confirmMsg"), yes = $("confirmYes");
+    if (!modal || !title || !body || !yes) { resolve(false); return; }  // 弹窗元素缺失：安全降级为取消
+    _confirmResolve = resolve;
+    title.textContent = opts.title || "确认操作";
+    body.textContent = msg;
+    yes.textContent = opts.okText || "确定";
+    yes.classList.toggle("danger", opts.danger !== false);
+    modal.classList.add("show");
+    yes.focus();
+  });
+}
+// 元素绑定判空防御：模板与 js 版本不同步时（如旧进程 Jinja 模板缓存），缺失元素不崩溃，
+// 否则脚本中断会导致后续 let 声明（dlList 等）未执行，触发 "Cannot access 'X' before initialization"（TDZ）
+const _cYes = $("confirmYes"), _cNo = $("confirmNo"), _cModal = $("confirmModal");
+if (_cYes) _cYes.addEventListener("click", () => {
+  if (_cModal) _cModal.classList.remove("show");
+  if (_confirmResolve) { _confirmResolve(true); _confirmResolve = null; }
+});
+if (_cNo) _cNo.addEventListener("click", () => {
+  if (_cModal) _cModal.classList.remove("show");
+  if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+});
+if (_cModal) _cModal.addEventListener("click", (e) => {
+  // 单击阴影不关，双击阴影 = 取消
+  if (e.target.id === "confirmModal" && e.detail >= 2) {
+    _cModal.classList.remove("show");
+    if (_confirmResolve) { _confirmResolve(false); _confirmResolve = null; }
+  }
+});
+
 /* ============ 下载 ============ */
 let dlList = [];
 let dlSel = new Set();
@@ -635,12 +669,13 @@ async function loadDownloads() {
       }).join("");
       return `<div class="dl-row" title="双击打开文件夹" ondblclick="openDir(${d.id})">
         <input type="checkbox" ${dlSel.has(d.id) ? "checked" : ""} onchange="toggleDl(${d.id}, this.checked)">
+        ${d.cover ? `<img class="dl-cover" src="${esc(d.cover)}" referrerpolicy="no-referrer" loading="lazy" onerror="this.style.display='none'">` : ""}
         <div class="dl-title">${esc(d.title)}</div>
         ${typeTags}
         <span class="st ${esc(d.status)}">${stMap[d.status] || d.status}</span>
         <div class="progress"><div class="bar ${cls}" style="width:${d.progress || 0}%"></div></div>
         <span class="pct">${Math.round(d.progress || 0)}%</span>
-        <div class="dl-dir" title="${esc(d.error || "")}">${esc(d.save_dir)}/${esc(sanitizeName(d.title))}</div>
+        <div class="dl-dir" title="${esc(d.error || "")}">${esc(d.save_dir)}/${esc(d.folder_name || sanitizeName(d.title))}</div>
         ${d.status === "running" || d.status === "pending"
           ? `<button class="link-btn" onclick="dlOne(${d.id},'stop')">停止</button>` : ""}
       </div>`;
@@ -660,23 +695,54 @@ $("selAll").addEventListener("change", (e) => {
 });
 
 async function dlOne(id, action) {
-  if (action === "stop" || action === "pause") {
-    await api(`/api/downloads/${id}/cancel`, { method: "POST" }).catch((e) => toast("操作失败", e.message));
-  } else if (action === "start") {
-    await api(`/api/downloads/${id}/resume`, { method: "POST" }).catch((e) => toast("操作失败", e.message));
-  } else if (action === "delete") {
-    await api(`/api/downloads/${id}`, { method: "DELETE" }).catch((e) => toast("删除失败", e.message));
-    dlSel.delete(id);
+  try {
+    await dlOneRaw(id, action);
+  } catch (e) {
+    toast("操作失败", e.message);
+  } finally {
+    loadDownloads();
   }
-  loadDownloads();
 }
 
+async function dlOneRaw(id, action) {
+  if (action === "stop" || action === "pause") {
+    await api(`/api/downloads/${id}/cancel`, { method: "POST" });
+  } else if (action === "start") {
+    await api(`/api/downloads/${id}/resume`, { method: "POST" });
+  } else if (action === "delete") {
+    await api(`/api/downloads/${id}`, { method: "DELETE" });
+    dlSel.delete(id);
+  }
+}
+
+/* 批量操作：按任务状态过滤可操作项，真实统计成功/失败/跳过，避免"全选了但一个都没生效还提示成功" */
 async function dlBatch(action) {
-  if (action === "delete" && !confirm("删除选中的下载任务？")) return;
   if (dlSel.size === 0) { toast("提示", "未选择任何任务"); return; }
-  for (const id of [...dlSel]) await dlOne(id, action);
+  if (action === "delete" && !(await confirmDlg("删除选中的下载任务？", { title: "删除下载任务", okText: "删除" }))) return;
+  // 各操作允许的任务状态：开始=已取消/失败可重下；暂停/停止=排队中/下载中可中断；删除=全部
+  const allow = action === "start" ? ["canceled", "failed"]
+    : action === "pause" || action === "stop" ? ["running", "pending"]
+    : null;
+  const targets = [...dlSel].filter((id) => {
+    const d = dlList.find((x) => x.id === id);
+    return d && (!allow || allow.includes(d.status));
+  });
+  const skipped = dlSel.size - targets.length;
+  if (targets.length === 0) {
+    const hint = action === "start" ? "仅「已取消/失败」的任务可重新开始"
+      : action === "pause" || action === "stop" ? "仅「排队中/下载中」的任务可暂停或停止" : "";
+    toast("提示", hint || "选中的任务均不可执行该操作");
+    return;
+  }
+  let ok = 0, fail = 0;
+  for (const id of targets) {
+    try { await dlOneRaw(id, action); ok++; } catch (e) { fail++; }
+  }
   if (action === "delete") dlSel.clear();
-  toast("完成", `已对 ${dlSel.size || 1} 个任务执行操作`);
+  loadDownloads();
+  const extra = skipped ? `，跳过 ${skipped} 个（状态不匹配）` : "";
+  toast(fail ? "部分完成" : "完成",
+    `已对 ${ok} 个任务执行操作${fail ? `，${fail} 个失败` : ""}${extra}`);
 }
 
 async function openDir(id) {
@@ -725,6 +791,137 @@ async function startDownload() {
     });
     closeModal("dlModal");
     toast("已加入下载队列", "将在后台串行执行");
+  } catch (e) { toast("创建失败", e.message); }
+}
+
+/* ============ 新建下载任务（链接识别：单视频 / 合集分P 勾选） ============ */
+let dlNew = null;            // /api/ugc/parse 返回的 collection
+let dlNewChecked = new Set();  // 勾选的分P 页码
+let dlNewTimer = null;
+
+function openDlNewModal() {
+  dlNew = null;
+  dlNewChecked = new Set();
+  $("dlNewUrl").value = "";
+  $("dlNewInfo").innerHTML = "";
+  $("dlNewPagesBox").style.display = "none";
+  $("dlNewPages").innerHTML = "";
+  $("dlNewVideo").checked = true;
+  $("dlNewAudio").checked = false;
+  $("dlNewDanmaku").checked = false;
+  $("dlNewQuality").value = "best";
+  $("dlNewDir").value = "data/downloads";
+  api("/api/config").then((cfg) => {
+    $("dlNewDir").value = cfg.download_dir || "data/downloads";
+  }).catch(() => {});
+  $("dlNewModal").classList.add("show");
+  setTimeout(() => $("dlNewUrl").focus(), 50);
+}
+
+$("dlNewUrl").addEventListener("input", () => {
+  clearTimeout(dlNewTimer);
+  const v = $("dlNewUrl").value.trim();
+  if (!v) {
+    dlNew = null;
+    $("dlNewInfo").innerHTML = "";
+    $("dlNewPagesBox").style.display = "none";
+    return;
+  }
+  if (/BV[1-9A-HJ-NP-Za-km-z]{10}/.test(v)) {
+    dlNewTimer = setTimeout(() => dlNewParse(v), 450);
+  } else if (v.includes("bilibili.com")) {
+    $("dlNewInfo").innerHTML = '<span style="color:var(--txt3)">链接中未识别到 BV 号…</span>';
+    $("dlNewPagesBox").style.display = "none";
+  } else {
+    dlNew = null;
+    $("dlNewInfo").innerHTML = '<span style="color:var(--red)">暂只支持 B 站视频 / 合集链接</span>';
+    $("dlNewPagesBox").style.display = "none";
+  }
+});
+
+async function dlNewParse(url) {
+  const infoEl = $("dlNewInfo");
+  infoEl.innerHTML = '<span style="color:var(--txt3)">识别中…</span>';
+  try {
+    const { collection } = await api("/api/ugc/parse", { method: "POST", body: { url } });
+    dlNew = collection;
+    const isAlbum = collection.pages.length > 1;
+    dlNewChecked = new Set(collection.pages.map((p) => p.page));
+    infoEl.innerHTML = `
+      <div style="display:flex;gap:10px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:10px">
+        <img src="${esc(collection.pic)}" referrerpolicy="no-referrer" onerror="this.style.display='none'"
+             style="width:96px;height:54px;object-fit:cover;border-radius:6px;flex:none;background:var(--bg2)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;font-size:13px">${esc(collection.title)}</div>
+          <div style="color:var(--txt2);font-size:12px;margin-top:2px">UP：${esc(collection.up_name)}</div>
+          <div style="margin-top:4px">${isAlbum
+            ? `<span class="mtag" style="background:var(--purple-dim);color:var(--purple);border-color:#d8cdfb">合集 · ${collection.pages.length} 个分P</span>`
+            : `<span class="mtag" style="background:var(--blue-dim);color:var(--blue);border-color:#bfd7ff">单个视频</span>`}</div>
+        </div>
+      </div>`;
+    renderDlNewPages();
+  } catch (e) {
+    dlNew = null;
+    $("dlNewPagesBox").style.display = "none";
+    infoEl.innerHTML = `<span style="color:var(--red)">识别失败：${esc(e.message)}</span>`;
+  }
+}
+
+function fmtDur(sec) {
+  sec = Math.floor(Number(sec) || 0);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m <= 0) return `${s}秒`;
+  return `${m}分${s ? s + "秒" : ""}`;
+}
+
+function renderDlNewPages() {
+  const box = $("dlNewPagesBox");
+  if (!dlNew || dlNew.pages.length <= 1) { box.style.display = "none"; return; }
+  box.style.display = "";
+  $("dlNewPagesCount").textContent = dlNewChecked.size;
+  $("dlNewPages").innerHTML = dlNew.pages.map((p) =>
+    `<label class="dl-new-page">
+      <input type="checkbox" data-page="${p.page}" ${dlNewChecked.has(p.page) ? "checked" : ""}
+             onchange="dlNewPageToggle(${p.page}, this.checked)">
+      <span class="pno">P${p.page}</span>
+      <span class="ptitle">${esc(p.part || "")}</span>
+      <span class="pdur">${fmtDur(p.duration)}</span>
+    </label>`).join("");
+}
+
+function dlNewPageToggle(page, on) {
+  if (on) dlNewChecked.add(page); else dlNewChecked.delete(page);
+  $("dlNewPagesCount").textContent = dlNewChecked.size;
+}
+
+function dlNewPagesAll(on) {
+  if (!dlNew) return;
+  dlNewChecked = on ? new Set(dlNew.pages.map((p) => p.page)) : new Set();
+  renderDlNewPages();
+}
+
+async function startDlNewDownload() {
+  if (!dlNew) { toast("提示", "请先输入并识别链接"); return; }
+  const content = [];
+  if ($("dlNewVideo").checked) content.push("video");
+  if ($("dlNewAudio").checked) content.push("audio");
+  if ($("dlNewDanmaku").checked) content.push("danmaku");
+  if (content.length === 0) { toast("提示", "请至少选择一种下载内容"); return; }
+  const isAlbum = dlNew.pages.length > 1;
+  const pages = isAlbum ? [...dlNewChecked] : [];
+  if (isAlbum && pages.length === 0) { toast("提示", "请至少勾选一个分P"); return; }
+  const body = {
+    url: $("dlNewUrl").value.trim(),
+    content_type: content.join("+"),
+    quality: $("dlNewQuality").value,
+    save_dir: $("dlNewDir").value.trim(),
+    pages,
+  };
+  try {
+    const res = await api("/api/downloads/from-url", { method: "POST", body });
+    closeModal("dlNewModal");
+    loadDownloads();
+    toast("已加入下载队列", `${res.count} 个任务将在后台串行执行`);
   } catch (e) { toast("创建失败", e.message); }
 }
 
@@ -820,7 +1017,7 @@ async function toggleSub(id, el) {
 }
 
 async function subDelete(id) {
-  if (!confirm("删除该订阅？将同时删除该订阅下的所有待办条目。")) return;
+  if (!(await confirmDlg("删除该订阅？将同时删除该订阅下的所有待办条目。", { title: "删除订阅", okText: "删除" }))) return;
   await api(`/api/subscriptions/${id}`, { method: "DELETE" }).catch((e) => toast("删除失败", e.message));
   loadSubs();
 }
@@ -1058,7 +1255,7 @@ function startQrPoll() {
 }
 
 async function logoutBili() {
-  if (!confirm("退出 B 站登录？搜索与高清晰度下载将受限。")) return;
+  if (!(await confirmDlg("退出 B 站登录？搜索与高清晰度下载将受限。", { title: "退出登录", okText: "退出" }))) return;
   await api("/api/bilibili/login/logout", { method: "POST" }).catch(() => {});
   toast("已退出登录");
   loadAccount();
@@ -1150,8 +1347,8 @@ $("minBtn").addEventListener("click", () => {
   api("/api/window/minimize", { method: "POST" }).catch((e) => toast("操作失败", e.message));
 });
 
-$("exitBtn").addEventListener("click", () => {
-  if (!confirm("退出程序？将同时关闭后台服务。")) return;
+$("exitBtn").addEventListener("click", async () => {
+  if (!(await confirmDlg("退出程序？将同时关闭后台服务。", { title: "退出程序", okText: "退出" }))) return;
   api("/api/shutdown", { method: "POST" }).catch(() => {});
   setTimeout(() => { toast("正在退出…", ""); }, 300);
 });

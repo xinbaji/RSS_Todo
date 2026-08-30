@@ -42,6 +42,16 @@ PYI_ARGS = [
     "--exclude-module", "numpy",
     "--exclude-module", "scipy",
     "--exclude-module", "PyInstaller",
+    # 打包环境自身组件/测试框架/无用标准库（Flask 运行时用不到）
+    "--exclude-module", "setuptools",
+    "--exclude-module", "pip",
+    "--exclude-module", "pkg_resources",
+    "--exclude-module", "wheel",
+    "--exclude-module", "unittest",
+    "--exclude-module", "pydoc",
+    "--exclude-module", "doctest",
+    "--exclude-module", "distutils",
+    "--exclude-module", "test",
     "--disable-windowed-traceback",
     str(ROOT / "app.py"),
 ]

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS downloads (
   content_type  TEXT NOT NULL DEFAULT 'video',
   quality       TEXT NOT NULL DEFAULT 'best',
   save_dir      TEXT NOT NULL,
+  folder_name   TEXT DEFAULT '',
   file_path     TEXT DEFAULT '',
   progress      REAL DEFAULT 0,
   error         TEXT DEFAULT '',
@@ -66,6 +67,18 @@ CREATE TABLE IF NOT EXISTS monitor_values (
   value         TEXT DEFAULT '',
   fetched_at    INTEGER DEFAULT 0,
   last_error    TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id            TEXT PRIMARY KEY,
+  data          TEXT NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS monitor_rules (
+  id            TEXT PRIMARY KEY,
+  data          TEXT NOT NULL,
+  updated_at    INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS meta (
@@ -84,7 +97,18 @@ class Storage:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._migrate()
         self._lock = __import__("threading").Lock()
+
+    def _migrate(self) -> None:
+        """老库升级：downloads 表缺 folder_name/cover 列时补上（专辑文件夹 / 封面缩略图用）。"""
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(downloads)")}
+        if "folder_name" not in cols:
+            self._conn.execute("ALTER TABLE downloads ADD COLUMN folder_name TEXT DEFAULT ''")
+        if "cover" not in cols:
+            self._conn.execute("ALTER TABLE downloads ADD COLUMN cover TEXT DEFAULT ''")
+        if "folder_name" not in cols or "cover" not in cols:
+            self._conn.commit()
 
     def close(self) -> None:
         try:
@@ -221,17 +245,63 @@ class Storage:
             d["matched_keywords"] = []
         return d
 
+    # ---------- 订阅 / 监控规则（JSON 已并入 app.db，历史 JSON 仅一次性迁移） ----------
+    def list_subscriptions(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT data FROM subscriptions ORDER BY updated_at").fetchall()
+        out = []
+        for r in rows:
+            try:
+                out.append(json.loads(r["data"]))
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return out
+
+    def replace_subscriptions(self, subs: list[dict]) -> None:
+        payload = [(s["id"], json.dumps(s, ensure_ascii=False), int(time.time()))
+                   for s in subs]
+        with self._lock:
+            self._conn.execute("DELETE FROM subscriptions")
+            self._conn.executemany(
+                "INSERT INTO subscriptions (id, data, updated_at) VALUES (?,?,?)", payload)
+            self._conn.commit()
+
+    def list_monitor_rules(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT data FROM monitor_rules ORDER BY updated_at").fetchall()
+        out = []
+        for r in rows:
+            try:
+                out.append(json.loads(r["data"]))
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return out
+
+    def replace_monitor_rules(self, rules: list[dict]) -> None:
+        payload = [(r["id"], json.dumps(r, ensure_ascii=False), int(time.time()))
+                   for r in rules]
+        with self._lock:
+            self._conn.execute("DELETE FROM monitor_rules")
+            self._conn.executemany(
+                "INSERT INTO monitor_rules (id, data, updated_at) VALUES (?,?,?)", payload)
+            self._conn.commit()
+
     # ---------- 下载任务 ----------
     def add_download(self, item: dict, content_type: str, quality: str,
-                     save_dir: str) -> int:
+                     save_dir: str, folder_name: str = "", cover: str = "") -> int:
+        """新增下载任务。folder_name 非空时覆盖默认"按标题建文件夹"，
+        用于专辑分P 统一落到同一目录；cover 为视频封面 URL。"""
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO downloads
                    (item_id, video_id, title, url, status, content_type, quality,
-                    save_dir, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                    save_dir, folder_name, cover, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (item.get("id"), item["video_id"], item["title"], item["url"],
-                 DL_PENDING, content_type, quality, save_dir, int(time.time())),
+                 DL_PENDING, content_type, quality, save_dir, folder_name,
+                 cover or item.get("cover", ""), int(time.time())),
             )
             self._conn.commit()
             return int(cur.lastrowid)

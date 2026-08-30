@@ -118,11 +118,19 @@ with tempfile.TemporaryDirectory() as td:
                    "config": {"url": "https://example.com", "xpath": "//h1/text()"}})
     check("新增返回 id", bool(r["id"]))
     check("get 命中", rules.get(r["id"]) is not None)
-    check("持久化", MonitorRules(td).get(r["id"]) is not None)
+    rules2 = MonitorRules(td)
+    try:
+        check("持久化", rules2.get(r["id"]) is not None)
+    finally:
+        rules2.close()
 
     rules.update(r["id"], {"name": "监控B",
                            "config": {"url": "https://example.com", "xpath": "//title"}})
-    check("更新生效", MonitorRules(td).get(r["id"])["name"] == "监控B")
+    rules3 = MonitorRules(td)
+    try:
+        check("更新生效", rules3.get(r["id"])["name"] == "监控B")
+    finally:
+        rules3.close()
 
     rules.add({"name": "停用", "enabled": False,
                "config": {"url": "https://example.com", "xpath": "//h1"}})
@@ -134,6 +142,7 @@ with tempfile.TemporaryDirectory() as td:
 
     check("更新不存在抛错", _expect_error(
         lambda: rules.update("none", {"config": {"url": "https://x.com", "xpath": "//h1"}})))
+    rules.close()
 
 print(f"\n结果: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

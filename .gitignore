@@ -33,6 +33,9 @@ build_old/
 dist_old/
 desktop/node_modules/
 desktop/release/
+desktop/release_old_*/
 desktop/resources/
+_bak_*/
+_bak_appdata_*/
 .e2e_dl/
 .e2e_storage/

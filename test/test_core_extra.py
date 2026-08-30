@@ -79,9 +79,12 @@ check("fetch_depth 超范围钳制到上限 1000", normalize_subscription({
 
 with tempfile.TemporaryDirectory() as td:
     subs = Subscriptions(td)
-    dup = {"id": "dup-1", "name": "UP", "config": {"uid": 1, "keywords": ["k"]}}
-    check("相同 id 首次添加成功", subs.add(dup)["id"] == "dup-1")
-    check("相同 id 重复添加报错", _expect_error(lambda: subs.add(dup)))
+    try:
+        dup = {"id": "dup-1", "name": "UP", "config": {"uid": 1, "keywords": ["k"]}}
+        check("相同 id 首次添加成功", subs.add(dup)["id"] == "dup-1")
+        check("相同 id 重复添加报错", _expect_error(lambda: subs.add(dup)))
+    finally:
+        subs.close()
 
 # ---------- storage 边界 ----------
 print("== storage 边界 ==")

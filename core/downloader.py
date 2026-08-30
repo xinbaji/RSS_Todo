@@ -68,15 +68,21 @@ class DownloadManager:
 
     # ---------- 队列 ----------
     def enqueue(self, item: dict, content_type: str, quality: str,
-                save_dir: str) -> int:
-        """content_type 支持组合，如 "video+danmaku" / "audio" / "video+audio+danmaku"。"""
+                save_dir: str, folder_name: str = "", cover: str = "") -> int:
+        """content_type 支持组合，如 "video+danmaku" / "audio" / "video+audio+danmaku"。
+
+        folder_name 非空时，落盘目录固定为 save_dir/folder_name（专辑分P 共用
+        同一文件夹），否则按任务标题建文件夹；cover 为视频封面 URL（列表缩略图）。
+        """
         contents = split_contents(content_type)
         if not contents:
             contents = ["video"]
         content_type = "+".join(contents)
         if quality not in QUALITY_FORMAT:
             quality = "best"
-        dl_id = self.storage.add_download(item, content_type, quality, save_dir)
+        cover = cover or item.get("cover", "")
+        dl_id = self.storage.add_download(item, content_type, quality, save_dir,
+                                          folder_name=folder_name, cover=cover)
         with self._lock:
             self._queue.append(dl_id)
         self._ensure_worker()
@@ -165,7 +171,8 @@ class DownloadManager:
         self.storage.update_download(dl_id, status=DL_RUNNING,
                                      started_at=int(time.time()), progress=0)
         try:
-            folder = Path(dl["save_dir"]) / sanitize_filename(dl["title"])
+            folder = Path(dl["save_dir"]) / (dl.get("folder_name")
+                                             or sanitize_filename(dl["title"]))
             folder.mkdir(parents=True, exist_ok=True)
             for content in split_contents(dl["content_type"]):
                 if dl_id in self._cancel:
@@ -228,12 +235,35 @@ class DownloadManager:
                 raise DownloadCanceled()
 
         opts = self._build_opts(dl, folder, hook, mode)
+        # 合集分P 条目（video_id 带 _pN）：文件加 "P{N} - " 前缀，避免同名覆盖
+        pm = re.match(r"^(BV[0-9A-Za-z]+)_p(\d+)$", dl["video_id"])
+        if pm:
+            opts["outtmpl"] = str(folder / f"P{int(pm.group(2))} - %(title)s.%(ext)s")
         import yt_dlp  # 惰性导入（重型依赖）
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([dl["url"]])
+        # B 站 412 风控多为瞬时（高频连续请求触发），退避后重试即可恢复
+        last_err: Exception | None = None
+        for attempt in range(3):
+            if dl["id"] in self._cancel:
+                raise DownloadCanceled()
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([dl["url"]])
+                return
+            except DownloadCanceled:
+                raise
+            except Exception as e:  # yt_dlp.utils.DownloadError 等
+                msg = str(e)
+                last_err = e
+                if "412" not in msg and "Precondition Failed" not in msg:
+                    raise  # 非 412 错误不重试，原样抛出
+                log.warning("下载遇 412 风控（第 %d 次），退避后重试: %s", attempt + 1, msg[:120])
+                time.sleep([10, 20][min(attempt, 1)])
+        raise last_err  # type: ignore[misc]
 
     def _download_danmaku(self, dl: dict, folder: Path) -> None:
-        bvid = dl["video_id"]
+        # 合集条目 video_id 形如 "BVxxx_pN"：剥出真实 bvid 与分P 页码
+        m = re.match(r"^(BV[0-9A-Za-z]+)_p(\d+)$", dl["video_id"])
+        bvid, page_no = (m.group(1), int(m.group(2))) if m else (dl["video_id"], 1)
         hdrs = {"User-Agent": UA, "Referer": "https://www.bilibili.com/"}
         if (self.config.get("cookie") or "").strip():
             hdrs["Cookie"] = self.config.get("cookie")
@@ -243,12 +273,16 @@ class DownloadManager:
         data = resp.json()
         if data.get("code") != 0 or not data.get("data"):
             raise RuntimeError(f"获取弹幕 cid 失败: {data.get('message')}")
-        cid = data["data"][0]["cid"]
+        pages = data["data"]
+        # 按 1-based 页码选分P；页码越界或普通视频取第一个
+        page = next((p for p in pages if p.get("page") == page_no), pages[0])
+        cid = page["cid"]
         dm = requests.get(f"https://api.bilibili.com/x/v1/dm/list.so?oid={cid}",
                           headers=hdrs, timeout=15)
         dm.raise_for_status()
         if dl["id"] in self._cancel:
             raise DownloadCanceled()
-        path = folder / "弹幕.xml"
+        # 分P 弹幕文件名带页码，避免同专辑多 P 相互覆盖
+        path = folder / (f"弹幕-P{page_no}.xml" if m else "弹幕.xml")
         path.write_bytes(dm.content)
         self.storage.update_download(dl["id"], file_path=str(path))

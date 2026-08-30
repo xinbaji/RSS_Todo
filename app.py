@@ -48,14 +48,14 @@ class AppContext:
     """应用共享上下文：存储 / 规则 / 调度 / 下载 / 监控。"""
 
     def __init__(self, data_dir: Path):
-        self.config = Config(data_dir)
+        self.storage = Storage(data_dir)
+        self.config = Config(data_dir, storage=self.storage)
         # 下载目录相对路径固定为 data/downloads（exe 从任意目录启动也能定位）
         dl = str(self.config.get("download_dir") or "")
         if not dl or not Path(dl).is_absolute():
             self.config.set("download_dir", str(data_dir / "downloads"))
-        self.storage = Storage(data_dir)
-        self.subs = Subscriptions(data_dir)
-        self.monitor_rules = MonitorRules(data_dir)
+        self.subs = Subscriptions(storage=self.storage)
+        self.monitor_rules = MonitorRules(storage=self.storage)
         self.scheduler = Scheduler(self.storage, self.subs, self.config)
         self.downloader = DownloadManager(self.storage, self.config)
         self.monitor_checker = MonitorChecker(self.monitor_rules, self.storage, self.config)

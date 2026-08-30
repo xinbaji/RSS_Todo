@@ -1,6 +1,6 @@
 {
   "name": "rss-todo-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "RSS_Todo 桌面壳（内嵌后端 exe）",
   "main": "main.js",
   "scripts": {
@@ -17,18 +17,24 @@
     "directories": { "output": "release" },
     "compression": "maximum",
     "asar": true,
+    "removePackageScripts": true,
     "files": ["main.js", "package.json", "loading.html"],
     "extraResources": [
       { "from": "resources/backend.exe", "to": "backend.exe" }
     ],
+    "afterPack": "./afterPack.js",
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "RSS_Todo-v${version}.exe",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "deleteAppDataOnUninstall": true
+      "deleteAppDataOnUninstall": true,
+      "packElevateHelper": false,
+      "differentialPackage": false
     }
   }
 }

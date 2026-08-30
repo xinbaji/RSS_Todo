@@ -31,9 +31,12 @@ def _new_id() -> str:
 
 
 def normalize_rule(raw: dict, idx: int = 0) -> dict:
+    if not isinstance(raw, dict):
+        raise MonitorRuleError(f"[{idx}] 监控规则必须是对象")
     name = str(raw.get("name", "")).strip() or f"监控 {idx + 1}"
-    url = str(raw.get("config", {}).get("url", "")).strip()
-    xpath = str(raw.get("config", {}).get("xpath", "")).strip()
+    cfg_raw = raw.get("config") or {}
+    url = str(cfg_raw.get("url", "")).strip()
+    xpath = str(cfg_raw.get("xpath", "")).strip()
     scraper = raw.get("scraper", "requests")
     if scraper not in ("requests", "playwright"):
         scraper = "requests"
@@ -43,17 +46,17 @@ def normalize_rule(raw: dict, idx: int = 0) -> dict:
     for t in tags:
         if isinstance(t, dict) and t.get("t"):
             norm_tags.append({"t": str(t["t"])[:20], "c": str(t.get("c") or "#2f6fed")})
-    cfg = {"type": raw.get("config", {}).get("type", "xpath"), "url": url, "xpath": xpath,
-           "headers": raw.get("config", {}).get("headers", {}) or {}}
+    cfg = {"type": cfg_raw.get("type", "xpath"), "url": url, "xpath": xpath,
+           "headers": cfg_raw.get("headers", {}) or {}}
     # bilibili_stat 类型：要求 aid + fields（多选，兼容旧 field 单选），不要求 url/xpath
     if cfg["type"] == "bilibili_stat":
         try:
-            cfg["aid"] = int(raw.get("config", {}).get("aid"))
+            cfg["aid"] = int(cfg_raw.get("aid"))
         except (TypeError, ValueError):
             raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少有效 aid")
-        fields = raw.get("config", {}).get("fields") or []
-        if not fields and raw.get("config", {}).get("field"):
-            fields = [raw["config"]["field"]]
+        fields = cfg_raw.get("fields") or []
+        if not fields and cfg_raw.get("field"):
+            fields = [cfg_raw["field"]]
         valid_fields = {"view", "like", "coin", "favorite", "share",
                         "danmaku", "reply"}
         cfg["fields"] = [f for f in fields if f in valid_fields]
@@ -64,12 +67,12 @@ def normalize_rule(raw: dict, idx: int = 0) -> dict:
     elif cfg["type"] == "up":
         # UP 主监控：mid + 监控项列表（live/follower/view/likes）
         try:
-            cfg["mid"] = int(raw.get("config", {}).get("mid") or 0)
+            cfg["mid"] = int(cfg_raw.get("mid") or 0)
         except (TypeError, ValueError):
             raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少有效 mid")
         if not cfg["mid"]:
             raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少有效 mid")
-        items = raw.get("config", {}).get("items") or []
+        items = cfg_raw.get("items") or []
         cfg["items"] = [i for i in items
                         if i in {"live", "following", "follower", "view", "likes"}]
         if not cfg["items"]:
@@ -78,11 +81,11 @@ def normalize_rule(raw: dict, idx: int = 0) -> dict:
         cfg["xpath"] = ""
     elif cfg["type"] == "github_repo":
         # GitHub 仓库监控：owner/repo + 指标列表（stars/forks/issues/watchers/downloads）
-        cfg["owner"] = str(raw.get("config", {}).get("owner", "")).strip()
-        cfg["repo"] = str(raw.get("config", {}).get("repo", "")).strip()
+        cfg["owner"] = str(cfg_raw.get("owner", "")).strip()
+        cfg["repo"] = str(cfg_raw.get("repo", "")).strip()
         if not cfg["owner"] or not cfg["repo"]:
             raise MonitorRuleError(f"[{idx}] 监控 {name} 缺少 owner/repo")
-        fields = raw.get("config", {}).get("fields") or []
+        fields = cfg_raw.get("fields") or []
         valid = {"stars", "forks", "issues", "watchers", "downloads"}
         cfg["fields"] = [f for f in fields if f in valid]
         if not cfg["fields"]:
@@ -106,33 +109,57 @@ def normalize_rule(raw: dict, idx: int = 0) -> dict:
     }
 
 
-class MonitorRules:
-    """监控规则集合（monitor.json）。"""
+def _new_storage(data_dir) -> "object":
+    """延迟创建 Storage（避免 monitor ↔ storage 循环导入）。"""
+    from core.storage import Storage
+    return Storage(data_dir)
 
-    def __init__(self, data_dir: str | Path = "data"):
+
+class MonitorRules:
+    """监控规则集合（存储于 app.db，旧 monitor.json 一次性迁移备份）。"""
+
+    def __init__(self, data_dir: str | Path = "data", storage=None):
         self.data_dir = Path(data_dir)
-        self.path = self.data_dir / "monitor.json"
+        self.path = self.data_dir / "monitor.json"  # 仅作历史迁移源
+        self._storage = storage if storage is not None else _new_storage(data_dir)
         self._list: list[dict] = []
         self.load()
 
     def load(self) -> None:
+        rows = self._storage.list_monitor_rules()
+        if rows:
+            self._list = rows
+            return
+        # db 无数据：尝试从历史 JSON 一次性迁移（导入后备份原文件）
         if self.path.exists():
             try:
                 with open(self.path, "r", encoding="utf-8") as f:
-                    data = __import__("json").load(f)
-                self._list = [normalize_rule(r, i) for i, r in enumerate(data.get("rules", []))]
-            except (MonitorRuleError, KeyError, TypeError, ValueError, OSError):
-                self._list = []
-        else:
-            self._list = []
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                data = None
+            if isinstance(data, dict):
+                for i, r in enumerate(data.get("rules", [])):
+                    try:
+                        self._list.append(normalize_rule(r, i))
+                    except MonitorRuleError as e:
+                        log.warning("跳过非法监控规则 %s: %s",
+                                    r.get("id") if isinstance(r, dict) else "?", e)
+                if self._list:
+                    self.save()
+                try:
+                    self.path.replace(self.path.with_suffix(".json.bak"))
+                    log.info("monitor.json 已迁移至 app.db（原文件备份为 .json.bak）")
+                except OSError:
+                    pass
+        self._list = self._storage.list_monitor_rules()
 
     def save(self) -> None:
-        import json
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"version": 1, "rules": self._list}, f, ensure_ascii=False, indent=2)
-        tmp.replace(self.path)
+        self._storage.replace_monitor_rules(self._list)
+
+    def close(self) -> None:
+        """释放底层 SQLite 连接（应用内复用连接时由 app 统一管理，测试/脚本独立使用时调用）。"""
+        if self._storage is not None and hasattr(self._storage, "close"):
+            self._storage.close()
 
     def all(self, include_disabled: bool = True) -> list[dict]:
         if include_disabled:
@@ -360,6 +387,9 @@ class MonitorChecker:
         last_raw = self.storage.get_meta(f"up_state:{rid}")
         last = json.loads(last_raw) if last_raw else {}
         name = state.get("name") or last.get("name") or f"UP{mid}"
+        # 头像只取一次：已获取过则保留旧值，后续刷新不再更新（防风控、防接口偶尔返回空把头像冲掉）
+        if last.get("face"):
+            state["face"] = last["face"]
         triggered: list[dict] = []
         matched = [f"UP监控:{name}"]
         sub_id = "monitor_alerts"
@@ -455,7 +485,9 @@ class MonitorChecker:
             info, e = view_stat_by_aid(aid, cookie)
             if info:
                 state["title"] = info.get("title") or state["title"]
-                state["pic"] = info.get("pic") or state["pic"]
+                # 封面只取一次：已获取过则保留旧值，后续刷新不再更新
+                if not state["pic"]:
+                    state["pic"] = info.get("pic") or ""
                 stat = info.get("stat") or {}
                 state.update({f: int(stat.get(f) or 0) for f in fields if f != "reply"})
             elif e:

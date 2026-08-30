@@ -20,6 +20,35 @@ from .adapters.bilibili import NAV_URL, UA, _enc_wbi
 LIVE_URL = "https://api.bilibili.com/x/space/wbi/acc/info"
 RELATION_URL = "https://api.bilibili.com/x/relation/stat"
 UPSTAT_URL = "https://api.bilibili.com/x/space/upstat"
+HOME_URL = "https://www.bilibili.com/"
+SPI_URL = "https://api.bilibili.com/x/frontend/finger/spi"
+
+# 匿名 cookie 预热缓存（buvid3 等有效期数小时，1 小时重建一次足够）
+_anon_sess: requests.Session | None = None
+_anon_sess_at: float = 0.0
+_ANON_TTL = 3600
+
+
+def _anon_session() -> requests.Session:
+    """匿名会话：先访问首页 + spi 预热出 buvid3/buvid4/b_nut 匿名 cookie。
+
+    B 站空间类接口（acc/info 等）不带匿名 cookie 会被 -352 风控拦截，
+    预热后未登录也能拿到头像/昵称。预热失败降级为裸会话（不抛错）。
+    """
+    global _anon_sess, _anon_sess_at
+    now = time.time()
+    if _anon_sess is not None and now - _anon_sess_at < _ANON_TTL:
+        return _anon_sess
+    s = requests.Session()
+    s.headers.update({"User-Agent": UA})
+    try:
+        s.get(HOME_URL, timeout=10)
+        s.get(SPI_URL, timeout=10)
+    except requests.RequestException:
+        pass  # 预热失败不阻塞，降级为裸会话
+    _anon_sess = s
+    _anon_sess_at = now
+    return s
 
 
 def parse_up(url_or_uid: str) -> dict:
@@ -41,8 +70,21 @@ def _get_wbi_keys() -> tuple[str, str]:
             wbi["sub_url"].rsplit("/", 1)[-1].split(".")[0])
 
 
+def _sess_for(cookie: str = "") -> tuple[requests.Session, dict]:
+    """构造请求会话与请求头：登录 cookie 优先；未登录用匿名预热会话。
+
+    返回 (session, headers)，headers 中已按需带上 Cookie。
+    """
+    if cookie:
+        s = requests.Session()
+        s.headers.update({"User-Agent": UA})
+        return s, {"Cookie": cookie}
+    return _anon_session(), {}
+
+
 def fetch_up_name(mid: int, cookie: str = "") -> str:
     """轻量获取 UP 昵称（只调 acc/info），失败返回空字符串。"""
+    sess, _ = _sess_for(cookie)
     h = {"User-Agent": UA, "Referer": f"https://space.bilibili.com/{mid}/"}
     if cookie:
         h["Cookie"] = cookie
@@ -54,7 +96,7 @@ def fetch_up_name(mid: int, cookie: str = "") -> str:
                 "dm_cover_img_str": "QU5HTEUgKE5WSURJQSwgTlZJRElBIEdlRm9yY2UgUlRYIDQwNjAgTGFwdG9wIEdQVSAoMHgwMDAwMjhFMCkgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoTlZJRElBKQ",
                 "dm_img_inter": '{"ds":[],"wh":[3417,2209,97],"of":[500,1000,500]}'}
         params = _enc_wbi(base, img, sub)
-        r = requests.get(LIVE_URL, params=params, headers=h, timeout=15)
+        r = sess.get(LIVE_URL, params=params, headers=h, timeout=15)
         d = r.json()
         if d.get("code") == 0:
             return str((d.get("data") or {}).get("name", "") or "")
@@ -66,6 +108,7 @@ def fetch_up_name(mid: int, cookie: str = "") -> str:
 def fetch_up_status(mid: int, cookie: str = "") -> dict:
     """拉取 UP 主状态：返回 {mid, name, live_status, live_title, live_url, live_cover,
                                following, follower, view, likes, error}"""
+    sess, _ = _sess_for(cookie)
     h = {"User-Agent": UA,
          "Referer": f"https://space.bilibili.com/{mid}/"}
     if cookie:
@@ -82,7 +125,7 @@ def fetch_up_status(mid: int, cookie: str = "") -> dict:
                 "dm_cover_img_str": "QU5HTEUgKE5WSURJQSwgTlZJRElBIEdlRm9yY2UgUlRYIDQwNjAgTGFwdG9wIEdQVSAoMHgwMDAwMjhFMCkgRGlyZWN0M0QxMSB2c181XzAgcHNfNV8wLCBEM0QxMSlHb29nbGUgSW5jLiAoTlZJRElBKQ",
                 "dm_img_inter": '{"ds":[],"wh":[3417,2209,97],"of":[500,1000,500]}'}
         params = _enc_wbi(base, img, sub)
-        r = requests.get(LIVE_URL, params=params, headers=h, timeout=15)
+        r = sess.get(LIVE_URL, params=params, headers=h, timeout=15)
         d = r.json()
         if d.get("code") == 0:
             data = d.get("data") or {}
@@ -99,8 +142,8 @@ def fetch_up_status(mid: int, cookie: str = "") -> dict:
         out["error"] = f"acc/info 异常: {e}"
     # relation/stat
     try:
-        r = requests.get(RELATION_URL, params={"vmid": mid, "web_location": 333.1387},
-                         headers=h, timeout=15)
+        r = sess.get(RELATION_URL, params={"vmid": mid, "web_location": 333.1387},
+                     headers=h, timeout=15)
         d = r.json()
         if d.get("code") == 0:
             data = d.get("data") or {}
@@ -112,8 +155,8 @@ def fetch_up_status(mid: int, cookie: str = "") -> dict:
         out["error"] = (out["error"] + " | " if out["error"] else "") + f"relation 异常: {e}"
     # upstat
     try:
-        r = requests.get(UPSTAT_URL, params={"mid": mid, "web_location": 333.1387},
-                         headers=h, timeout=15)
+        r = sess.get(UPSTAT_URL, params={"mid": mid, "web_location": 333.1387},
+                     headers=h, timeout=15)
         d = r.json()
         if d.get("code") == 0:
             data = d.get("data") or {}

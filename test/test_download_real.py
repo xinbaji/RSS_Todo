@@ -142,7 +142,7 @@ def main() -> int:
     ROOT.mkdir(parents=True, exist_ok=True)
     DB_DIR.mkdir(parents=True, exist_ok=True)
     storage = Storage(DB_DIR)
-    config = Config(DB_DIR)  # cookie 为空 -> 无 Cookie 请求
+    config = Config(DB_DIR, storage=storage)  # cookie 为空 -> 无 Cookie 请求
     mgr = DownloadManager(storage, config)
 
     print(f"== rss-todo 下载引擎真实验证 ==")

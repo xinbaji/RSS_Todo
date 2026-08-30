@@ -329,6 +329,67 @@ def item_download(item_id):
     return jsonify({"ok": True, "download_id": dl_id})
 
 
+@api.post("/api/downloads/from-url")
+def download_from_url():
+    """按链接新建下载任务：B 站单视频或合集（分P）批量入队。
+
+    body: {url, content_type, quality, save_dir, pages:[页码...]}
+    - pages 为空 → 单视频入队一个任务
+    - pages 非空 → 每个勾选分P 入队一个任务，folder_name=专辑标题（同一文件夹）
+    """
+    ctx = _ctx()
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return jsonify({"error": "缺少 url"}), 400
+    content_type = body.get("content_type", "video")
+    quality = body.get("quality", "best")
+    save_dir = (body.get("save_dir")
+                or ctx.config.get("download_dir", "data/downloads") or "").strip()
+    cookie = ctx.config.get("cookie") or ""
+    try:
+        info = parse_collection(url, cookie=cookie)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    # 勾选的分P 页码（非法值忽略）
+    page_nos = set()
+    for p in (body.get("pages") or []):
+        try:
+            page_nos.add(int(p))
+        except (TypeError, ValueError):
+            pass
+    bvid = info["bvid"]
+    ids: list[int] = []
+    if page_nos:
+        from core.downloader import sanitize_filename
+        folder_name = sanitize_filename(info["title"])
+        for p in info["pages"]:
+            if p.get("page") not in page_nos:
+                continue
+            item = {
+                "video_id": f"{bvid}_p{p['page']}",
+                "title": f"{info['title']} - P{p['page']} {p.get('part', '')}".strip(),
+                "url": f"https://www.bilibili.com/video/{bvid}?p={p['page']}",
+                "cover": info["pic"],
+                "author": info["up_name"],
+            }
+            ids.append(ctx.downloader.enqueue(item, content_type, quality,
+                                              save_dir, folder_name=folder_name))
+    else:
+        item = {
+            "video_id": bvid,
+            "title": info["title"],
+            "url": f"https://www.bilibili.com/video/{bvid}",
+            "cover": info["pic"],
+            "author": info["up_name"],
+        }
+        ids.append(ctx.downloader.enqueue(item, content_type, quality, save_dir))
+    return jsonify({"ok": True, "download_ids": ids, "count": len(ids),
+                    "title": info["title"]})
+
+
 @api.get("/api/downloads")
 def downloads_list():
     return jsonify({"downloads": _ctx().storage.list_downloads()})
@@ -366,11 +427,15 @@ def download_open_dir():
     ids = body.get("ids") or []
     if not ids:
         return jsonify({"error": "未提供任务"}), 400
-    dl = _ctx().storage.get_download(int(ids[0]))
+    try:
+        dl = _ctx().storage.get_download(int(ids[0]))
+    except (TypeError, ValueError):
+        return jsonify({"error": "任务 id 非法"}), 400
     if not dl:
         return jsonify({"error": "任务不存在"}), 404
     from core.downloader import sanitize_filename
-    folder = (Path(dl["save_dir"]) / sanitize_filename(dl["title"])).resolve()
+    folder = (Path(dl["save_dir"]) / (dl.get("folder_name")
+                                      or sanitize_filename(dl["title"]))).resolve()
     if not folder.exists():
         base = Path(dl["save_dir"]).resolve()
         if base.exists():

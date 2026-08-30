@@ -1,14 +1,23 @@
 /* RSS_Todo Electron 壳：启动内嵌后端 exe → 等待端口就绪 → 打开无边框应用窗口 */
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, shell } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
 
 const log = (...a) => console.log("[rsstodo]", ...a);
 
-// 低资源环境/远程桌面兼容：禁用 GPU 加速
+// 低资源环境/远程桌面兼容：禁用 GPU 加速（必须在 ready 前）
+// disableHardwareAcceleration 是官方 API，比 commandLine 开关更可靠
+// （无 GPU 环境若不彻底禁用，GPU 进程反复崩溃会导致窗口加载失败）
+app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
+// 无 GPU/远程桌面环境实测（最小窗口测试验证）：
+//   - 渲染进程被沙箱拉起失败被杀 → --no-sandbox
+//   - 独立 GPU 进程反复崩溃 → --in-process-gpu（GPU 线程并入主进程）
+app.commandLine.appendSwitch("no-sandbox");
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+app.commandLine.appendSwitch("in-process-gpu");
 
 const PORT = 8848;
 const START_TIMEOUT = 40000;
@@ -87,6 +96,12 @@ function createWindow() {
   });
   // 先显示本地加载页（立即渲染，无黑屏），后端就绪后跳转真实页面
   win.loadFile(path.join(__dirname, "loading.html"));
+  // 外链（target=_blank 的视频跳转/监控链接等）一律交给系统默认浏览器
+  // （Edge/Chrome）打开，不再开 Electron 内嵌窗口
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
   win.on("closed", () => { win = null; });
 }
 

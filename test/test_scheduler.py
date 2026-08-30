@@ -55,8 +55,18 @@ class FakeAdapter:
 
 
 def _setup(td):
-    storage, subs, cfg = Storage(td), Subscriptions(td), Config(td)
+    storage = Storage(td)
+    subs = Subscriptions(td, storage=storage)
+    cfg = Config(td, storage=storage)
     return Scheduler(storage, subs, cfg)
+
+
+def _teardown(sched):
+    """关闭 scheduler 持有的所有 SQLite 连接（Windows 文件锁）。"""
+    if hasattr(sched, "subs") and hasattr(sched.subs, "close"):
+        sched.subs.close()
+    if hasattr(sched, "storage") and hasattr(sched.storage, "close"):
+        sched.storage.close()
 
 
 # ---------- 1. 防重入：同订阅双线程并发 ----------
@@ -87,7 +97,7 @@ with tempfile.TemporaryDirectory() as td:
     check("双线程同订阅: 另一线程被拦截",
           any(r.get("error") == "正在刷新中" for r in results))
     check("双线程同订阅: _running 已清空", sched._running == set())
-    sched.storage.close()
+    _teardown(sched)
 
 # ---------- 2. 去重：连续刷新两次 ----------
 print("== 2. 去重（seen_videos） ==")
@@ -104,7 +114,7 @@ with tempfile.TemporaryDirectory() as td:
     check("二次刷新: 不新增条目", r2["new"] == 0 and n2 == 1)
     check("二次刷新: 视频已标记 seen",
           sched.storage.is_seen(sub["id"], "BVdemo0001"))
-    sched.storage.close()
+    _teardown(sched)
 
 # ---------- 3. 刷新间隔：缺省回落 / 显式生效 ----------
 print("== 3. 刷新间隔 ==")
@@ -117,7 +127,7 @@ with tempfile.TemporaryDirectory() as td:
         "name": "显式", "refresh_interval_minutes": 120,
         "config": {"uid": 334, "keywords": ["k"]}})
     check("显式配置用订阅值 120", sched._interval_minutes(sub_exp) == 120)
-    sched.storage.close()
+    _teardown(sched)
 
 # ---------- 4. refresh_all 只处理 enabled ----------
 print("== 4. refresh_all 过滤禁用订阅 ==")
@@ -133,7 +143,7 @@ with tempfile.TemporaryDirectory() as td:
     check("禁用订阅未触发抓取", FakeAdapter.calls == 1)
     check("清单只 1 条（启用订阅）", len(sched.storage.list_items()) == 1)
     check("禁用订阅 id 不在结果", off_sub["id"] not in res)
-    sched.storage.close()
+    _teardown(sched)
 
 # ---------- 5. refresh_in_background 非阻塞 + 回调 ----------
 print("== 5. refresh_in_background ==")
@@ -157,7 +167,7 @@ with tempfile.TemporaryDirectory() as td:
     check("回调收到结果 dict",
           isinstance(got, dict) and sub["id"] in got and got[sub["id"]]["new"] == 1)
     check("后台刷新已入清单", len(sched.storage.list_items()) == 1)
-    sched.storage.close()
+    _teardown(sched)
 
 print(f"\n结果: {passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
